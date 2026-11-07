@@ -112,17 +112,50 @@ async def generate_report_and_notify() -> dict:
 
 
 async def daily_job():
-    """每日全流程：抓取 → 循环解读消化积压 → 生成执行报告并推送。"""
-    from .crawler.runner import run_fetch
+    """每日全流程：抓取 → 循环解读 → 数据库热备 → 生成执行报告并推送。
+
+    解读、备份、报告三段各自异常隔离：任何一段失败都不能阻断后续步骤。
+    尤其是 AI 额度耗尽时，必须仍然发出告警和报告——否则用户反而收不到
+    任何消息，完全不知道系统已经降级。
+    """
+    from .ai.client import AIQuotaError
     from .ai.pipeline import run_interpret
+    from .backup import run_backup
+    from .crawler.runner import run_fetch
+    from .notifier import push_alert
 
     log.info("daily job start")
     await run_fetch()
+
     if config.ai_enabled():
-        for _ in range(50):  # 最多消化 50 批，批大小可配（INTERPRET_BATCH_SIZE）
-            r = await asyncio.to_thread(run_interpret, 0)
-            if r["processed"] == 0:
-                break
+        try:
+            for _ in range(50):  # 最多消化 50 批，批大小可配（INTERPRET_BATCH_SIZE）
+                r = await asyncio.to_thread(run_interpret, 0)
+                if r["processed"] == 0:
+                    break
+        except AIQuotaError as e:
+            log.error("AI quota exhausted, interpretation aborted: %s", e)
+            try:
+                res = await asyncio.to_thread(
+                    push_alert,
+                    "【注意】AI 额度耗尽，解读已暂停",
+                    f"**原因**：{str(e)[:200]}\n\n"
+                    "新闻仍正常抓取入库，不会丢失；本轮解读已中止。\n"
+                    "额度恢复（或配好备用通道）后，下一轮 12:00 / 21:00 会自动补解读。\n"
+                    "本轮执行报告仍会照常生成并推送。",
+                )
+                log.info("quota alert pushed: %s", str(res)[:200])
+            except Exception:  # noqa: BLE001
+                log.exception("quota alert failed (non-fatal)")
+        except Exception:  # noqa: BLE001
+            log.exception("interpretation failed (non-fatal)")
+
+    try:
+        res = await asyncio.to_thread(run_backup)
+        log.info("db backup: %s", str(res)[:300])
+    except Exception:  # noqa: BLE001
+        log.exception("db backup failed (non-fatal)")
+
     log.info("daily job done")
     # 报告与推送是非阻断步骤：失败只记日志，不影响本轮抓取/解读结果
     try:

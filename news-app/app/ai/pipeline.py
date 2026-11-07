@@ -86,15 +86,17 @@ def interpret_one(db: Session, news: News, retries: int | None = None) -> bool:
     model = pick_model(news)
     last_err = ""
     for attempt in range(retries + 1):
+        meta: dict = {}
         try:
             raw = chat([
                 {"role": "system", "content": PROMPT_SYSTEM},
                 {"role": "user", "content": build_prompt(news)},
-            ], model=model)
+            ], model=model, meta=meta)
             data = parse_llm_json(raw)
         except AIQuotaError:
-            # 额度耗尽时立刻中止整轮，避免把剩余新闻逐条标记失败、白耗请求
-            news.ai_error = "MiniMax 402：额度不足，本轮解读中止"
+            # 额度耗尽时立刻中止整轮，避免把剩余新闻逐条标记失败、白耗请求；
+            # 新闻保持 status=fetched，额度恢复后下一轮自动补解读
+            news.ai_error = "AI 402：额度不足，本轮解读中止"
             raise
         except AIRateLimitError as e:
             last_err = str(e)[:500]
@@ -106,7 +108,8 @@ def interpret_one(db: Session, news: News, retries: int | None = None) -> bool:
             last_err = str(e)[:500]
             log.warning("interpret #%s attempt %d failed: %s", news.id, attempt + 1, last_err)
             continue
-        _apply_result(db, news, data, model)
+        # 若本次实际走的是备用通道，记录真实使用的模型名
+        _apply_result(db, news, data, meta.get("model") or model)
         return True
     news.ai_error = last_err
     return False

@@ -1,4 +1,4 @@
-"""执行报告推送。
+"""执行报告与告警推送。
 
 服务端无人值守：每轮定时任务生成报告后直接 HTTP POST 到 webhook，
 不依赖 AI 会话、不需要常驻登录态。
@@ -67,16 +67,32 @@ def _feishu_sign(secret: str) -> tuple[str, str]:
 def build_message(d: dict, html_name: str) -> tuple[str, str]:
     """把轮次数据压成一条手机上一屏能看完的摘要。"""
     a = d["agg"]
+    pending = int(d.get("pending") or 0)
+    ai_err = int(d.get("ai_err") or 0)
+    degraded = bool(a["failed"] or pending or ai_err)
     hour = int(d["key"][11:13])
     slot = "早间" if hour < 9 else ("午间" if hour < 16 else "晚间")
     ok = a["failed"] == 0
     title = f"抓取报告 {d['key'][5:10]} {hour:02d}:00 {slot}轮｜新增 {a['inserted']} 篇"
+    if degraded:
+        title = f"【注意】{title}｜待解读 {pending}"
+
     lines = [
         f"**状态**：{'全部成功' if ok else str(a['failed']) + ' 个源失败'}",
         f"**总览**：{a['sources']} 源｜扫描 {a['found']}｜新增 **{a['inserted']}**｜判重 {a['duplicated']}｜耗时 {d['secs']:.0f}s",
         "",
-        "**本轮新增**",
     ]
+    if degraded:
+        lines.append("**需要关注**")
+        if pending or ai_err:
+            lines.append(
+                f"- 待解读 {pending} 篇 / AI 错误 {ai_err} 篇：新闻已入库不会丢失，"
+                "多为 AI 额度耗尽；额度恢复后下一轮自动补解读"
+            )
+        if a["failed"]:
+            lines.append(f"- {a['failed']} 个源级失败，下轮自动重试")
+        lines.append("")
+    lines.append("**本轮新增**")
     if d["news"]:
         for t, city, pub, status, err, src in d["news"][:8]:
             lines.append(f"- [{city or '—'}] {t[:42]}")
@@ -97,14 +113,14 @@ def build_message(d: dict, html_name: str) -> tuple[str, str]:
         lines.append("**异常**：无")
     lines += [
         "",
-        f"全库 {d['total']} 篇｜已解读 {d['interpreted']}｜待解读 {d['pending']}｜AI 错误 {d['ai_err']}",
+        f"全库 {d['total']} 篇｜已解读 {d['interpreted']}｜待解读 {pending}｜AI 错误 {ai_err}",
         f"完整报告：`data/reports/{html_name}`",
     ]
     return title, "\n".join(lines)
 
 
-def push_report(d: dict, html_path: str, md_path: str = "") -> dict:
-    """生成报告后调用；返回推送结果字典。任何异常都被吞掉并记日志。"""
+def _dispatch(title: str, markdown: str, *, red: bool = False, extra: dict | None = None) -> dict:
+    """把一条消息发到当前配置的渠道。任何异常都被吞掉并记日志。"""
     channel = os.getenv("NOTIFY_CHANNEL", "off").strip().lower()
     if channel in ("", "off", "none"):
         return {"skipped": True, "reason": "NOTIFY_CHANNEL 未配置（off）"}
@@ -112,7 +128,6 @@ def push_report(d: dict, html_path: str, md_path: str = "") -> dict:
         log.warning("unknown NOTIFY_CHANNEL=%s, skip", channel)
         return {"skipped": True, "reason": f"未知渠道 {channel}"}
 
-    title, markdown = build_message(d, os.path.basename(html_path))
     webhook = os.getenv("NOTIFY_WEBHOOK", "").strip()
     token = os.getenv("NOTIFY_TOKEN", "").strip()
     secret = os.getenv("NOTIFY_SECRET", "").strip()
@@ -128,7 +143,7 @@ def push_report(d: dict, html_path: str, md_path: str = "") -> dict:
                 "msg_type": "interactive",
                 "card": {
                     "header": {"title": {"tag": "plain_text", "content": title},
-                               "template": "green" if d["agg"]["failed"] == 0 else "red"},
+                               "template": "red" if red else "green"},
                     "elements": [{"tag": "div", "text": {"tag": "lark_md", "content": markdown}}],
                 },
             }
@@ -151,13 +166,28 @@ def push_report(d: dict, html_path: str, md_path: str = "") -> dict:
         else:  # custom
             status, body = _post(webhook, {
                 "title": title, "text": markdown, "markdown": markdown,
-                "report_html": os.path.basename(html_path),
-                "report_md": os.path.basename(md_path) if md_path else "",
-                "round": d["key"],
+                **(extra or {}),
             })
         result = {"ok": 200 <= status < 300, "channel": channel, "status": status, "body": body}
-        log.info("report pushed via %s: %s %s", channel, status, body[:120])
+        log.info("message pushed via %s: %s %s", channel, status, body[:120])
         return result
     except Exception as ex:  # noqa: BLE001
-        log.warning("report push failed via %s: %s", channel, str(ex)[:200])
+        log.warning("message push failed via %s: %s", channel, str(ex)[:200])
         return {"ok": False, "channel": channel, "error": str(ex)[:200]}
+
+
+def push_report(d: dict, html_path: str, md_path: str = "") -> dict:
+    """生成报告后调用；返回推送结果字典。"""
+    a = d["agg"]
+    red = bool(a["failed"] or d.get("pending") or d.get("ai_err"))
+    title, markdown = build_message(d, os.path.basename(html_path))
+    return _dispatch(title, markdown, red=red, extra={
+        "report_html": os.path.basename(html_path),
+        "report_md": os.path.basename(md_path) if md_path else "",
+        "round": d["key"],
+    })
+
+
+def push_alert(title: str, markdown: str) -> dict:
+    """即时告警（AI 额度耗尽、系统异常等），不等下一轮报告。"""
+    return _dispatch(title, markdown, red=True, extra={"kind": "alert"})

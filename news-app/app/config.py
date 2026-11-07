@@ -18,6 +18,11 @@ AI_MODEL = os.getenv("AI_MODEL", "").strip()
 # 强模型：用于政策文件类精读；留空则全部用 AI_MODEL
 AI_MODEL_STRONG = os.getenv("AI_MODEL_STRONG", "").strip()
 AI_API_KEY = os.getenv("AI_API_KEY", "").strip()
+# 主通道返回 402（额度耗尽）时自动切换的备用通道；留空表示不启用，
+# 此时仍会中止解读并推送告警，新闻照常入库、恢复后自动补解读。
+AI_FALLBACK_PROVIDER = os.getenv("AI_FALLBACK_PROVIDER", "").strip().lower()
+AI_FALLBACK_API_KEY = os.getenv("AI_FALLBACK_API_KEY", "").strip()
+AI_FALLBACK_MODEL = os.getenv("AI_FALLBACK_MODEL", "").strip()
 
 AI_BASE_URLS = {
     "deepseek": "https://api.deepseek.com/v1",
@@ -45,6 +50,22 @@ def ai_model() -> str:
 def ai_strong_model() -> str:
     """政策文件精读用强模型；未配置则退回普通模型。"""
     return AI_MODEL_STRONG or ai_model()
+
+
+def ai_fallback_enabled() -> bool:
+    """备用通道三项齐全且 provider 已知才算可用。"""
+    return bool(
+        AI_FALLBACK_PROVIDER and AI_FALLBACK_API_KEY
+        and AI_BASE_URLS.get(AI_FALLBACK_PROVIDER)
+    )
+
+
+def ai_fallback_base_url() -> str:
+    return AI_BASE_URLS.get(AI_FALLBACK_PROVIDER, "")
+
+
+def ai_fallback_model() -> str:
+    return AI_FALLBACK_MODEL or AI_DEFAULT_MODELS.get(AI_FALLBACK_PROVIDER, "")
 
 
 # ---- 抓取 ----

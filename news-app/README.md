@@ -50,6 +50,23 @@ cp .env.example .env                  # 编辑：设置 ADMIN_PASSWORD、AI_API_
 - 手动命令：`.venv/bin/python scripts/execution_report.py --notify`（补历史用 `--all`，指定轮次用 `--run "2026-11-07 12:00"`）
 - 报告静态文件挂在 `/reports/`，仅监听 127.0.0.1，不对外暴露
 
+## 数据库备份与额度兜底
+
+**热备**：每轮定时任务（12:00 / 21:00）在抓取与解读结束后生成当天快照 `data/backups/news-YYYYMMDD.db`，同一天覆盖为最新。先写临时文件、校验 `news` 表行数后原子替换，避免留下半截文件；用 SQLite 官方 `backup()` API（WAL 模式下直接复制文件会漏数据）。默认保留 14 天（`BACKUP_KEEP_DAYS`）。
+
+- 手动执行：`.venv/bin/python scripts/backup_db.py`
+- 恢复：停服务 → 把快照复制回 `data/news.db` → 重启
+- 异地镜像：`.env` 里设 `BACKUP_MIRROR_DIR=/绝对路径`（iCloud、移动硬盘等），每轮额外复制一份；目录不存在会静默跳过，不影响主流程
+- 备份目录已被 `.gitignore` 排除，不进 GitHub；**GitHub 只存代码，不能替代数据备份**
+
+**AI 额度兜底**：主通道返回 402（额度耗尽）时——
+
+1. 配了备用通道（`AI_FALLBACK_PROVIDER` + `AI_FALLBACK_API_KEY` + 可选 `AI_FALLBACK_MODEL`）→ 自动切换继续解读，实际模型名写入 `news.ai_model`；
+2. 未配置 → 立即中止本轮解读并推送一条红色告警；新闻仍正常入库（保持 `fetched`，不会丢）；
+3. 两种情况都会照常生成并推送执行报告；待解读 > 0 时报告标题加「【注意】」、卡片标红，并说明额度恢复后下一轮自动补解读。
+
+解读、备份、报告三段在定时任务里各自异常隔离，任何一段失败都不会阻断后续步骤。
+
 ## 架构
 
 ```
