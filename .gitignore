@@ -1,0 +1,28 @@
+# ===== 密钥与本地配置（绝不提交）=====
+.env
+news-app/.env
+news-app/.env.local
+*.env.local
+
+# WorkBuddy 会话记忆：含 API Key、webhook、口令等明文记录
+.workbuddy/
+
+# ===== 运行时环境（项目自带解释器 + 虚拟环境，约 140MB）=====
+news-app/.venv/
+news-app/.venv-old/
+news-app/.venv-new/
+news-app/runtime/
+__pycache__/
+*.py[cod]
+
+# ===== 运行产物：数据库、报告、日志、备份 =====
+news-app/data/
+data/
+*.db
+*.db-wal
+*.db-shm
+*.log
+
+# ===== 系统文件 =====
+.DS_Store
+Thumbs.db

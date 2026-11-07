@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>登录 - 政务新闻聚合平台</title>
+<link rel="stylesheet" href="/ui.css">
+<style>
+  body { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+  .login-card {
+    width: 340px; background: var(--bg-card);
+    border: 1px solid var(--border-2); border-radius: var(--r-xl);
+    box-shadow: var(--shadow-hover);
+    padding: 36px 32px 32px;
+  }
+  .login-brand { display: flex; flex-direction: column; align-items: center; gap: 10px; margin-bottom: 24px; }
+  .login-brand .brand-mark { width: 44px; height: 44px; border-radius: 11px; font-size: 20px; }
+  .login-brand h1 { margin: 0; font-size: 17px; font-weight: 600; letter-spacing: .5px; }
+  .login-brand p { margin: 0; font-size: 12px; color: var(--text-3); }
+  .login-card input { width: 100%; padding: 10px 12px; font-size: 14px; margin-bottom: var(--sp-4); }
+  .login-card button {
+    width: 100%; padding: 10px;
+    background: var(--brand-600); color: #fff;
+    border: 0; border-radius: var(--r-md);
+    font-size: 14px; font-family: inherit; cursor: pointer; transition: .15s;
+  }
+  .login-card button:hover { background: var(--brand-700); }
+  .login-card button:disabled { opacity: .6; cursor: wait; }
+  .err { color: var(--err); font-size: 13px; text-align: center; min-height: 18px; margin-bottom: 8px; }
+</style>
+</head>
+<body>
+<div class="login-card">
+  <div class="login-brand">
+    <span class="brand-mark">政</span>
+    <h1>政务新闻聚合平台</h1>
+    <p>广东省政务新闻 · 采集 / 去重 / AI 解读</p>
+  </div>
+  <div class="err" id="err"></div>
+  <input type="password" id="pwd" placeholder="访问口令" autofocus>
+  <button id="btn-login" onclick="login()">登 录</button>
+</div>
+<script>
+  if (localStorage.getItem("nb_token")) location.href = "/";
+  async function login() {
+    const btn = document.getElementById("btn-login");
+    btn.disabled = true;
+    try {
+      const r = await fetch("/api/login", {
+        method: "POST", headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({password: document.getElementById("pwd").value})
+      });
+      if (r.ok) { localStorage.setItem("nb_token", (await r.json()).token); location.href = "/"; }
+      else document.getElementById("err").textContent = "口令错误，请重试";
+    } finally {
+      btn.disabled = false;
+    }
+  }
+  document.getElementById("pwd").addEventListener("keydown", e => { if (e.key === "Enter") login(); });
+</script>
+</body>
+</html>

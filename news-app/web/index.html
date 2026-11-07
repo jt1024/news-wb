@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>政务新闻聚合平台</title>
+<link rel="stylesheet" href="/ui.css">
+<style>
+  /* ---- 本页专属：筛选栏 / 新闻列表（遵循 ui.css 令牌） ---- */
+  .filter-bar { background: var(--bg-card); border-bottom: 1px solid var(--border-2); padding: var(--sp-3) var(--sp-6); }
+  .filter-inner { max-width: 960px; margin: 0 auto; display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  .filter-inner input[type="text"] { width: 220px; }
+  .filter-sep { font-size: 12px; color: var(--text-3); }
+
+  .page { max-width: 960px; margin: var(--sp-5) auto 0; padding: 0 var(--sp-6) 64px; }
+  .list-toolbar {
+    display: flex; justify-content: space-between; align-items: baseline;
+    margin-bottom: var(--sp-3); font-size: 12.5px; color: var(--text-3);
+  }
+  .list-toolbar b { color: var(--text-1); font-variant-numeric: tabular-nums; }
+
+  .news-item {
+    background: var(--bg-card);
+    border: 1px solid var(--border-2); border-radius: var(--r-lg);
+    padding: 18px 22px; margin-bottom: var(--sp-3); cursor: pointer;
+    transition: box-shadow .15s, border-color .15s, transform .15s;
+  }
+  .news-item:hover { box-shadow: var(--shadow-hover); border-color: #E3E5EA; transform: translateY(-1px); }
+  .news-item h3 { margin: 0; font-size: 15.5px; line-height: 1.55; font-weight: 600; }
+  .news-item h3:hover { color: var(--brand-600); }
+  .meta { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 8px; font-size: 12px; color: var(--text-3); }
+  .meta .dot::before { content: "·"; margin-right: 2px; }
+  .summary { margin-top: 8px; font-size: 13px; color: var(--text-2); line-height: 1.75; }
+  .more { text-align: center; margin-top: var(--sp-5); }
+  .more .btn { min-width: 160px; }
+</style>
+</head>
+<body>
+
+<header class="site-header">
+  <div class="brand">
+    <span class="brand-mark">政</span>
+    <h1>政务新闻聚合平台</h1>
+    <span class="brand-sub">广东 · 一期</span>
+  </div>
+  <nav class="site-nav">
+    <a href="/trends.html">趋势分析</a>
+    <a href="/admin">后台管理</a>
+    <a href="#" onclick="logout();return false;">退出</a>
+  </nav>
+</header>
+
+<div class="filter-bar">
+  <div class="filter-inner">
+    <select id="f-city"><option value="">全部地市</option></select>
+    <select id="f-type"><option value="">全部类型</option></select>
+    <select id="f-tag"><option value="">全部主题</option></select>
+    <input type="date" id="f-start">
+    <span class="filter-sep">至</span>
+    <input type="date" id="f-end">
+    <input type="text" id="f-q" placeholder="搜索标题 / 正文 / 摘要">
+    <button class="btn primary" onclick="load(1)">查询</button>
+    <button class="btn" onclick="resetFilters()">重置</button>
+  </div>
+</div>
+
+<main class="page">
+  <div class="list-toolbar"><span id="result-count"></span></div>
+  <div id="list"><div class="state">加载中…</div></div>
+  <div class="more"><button class="btn" id="more-btn" style="display:none" onclick="loadNext()">加载更多</button></div>
+</main>
+
+<div class="mask" id="mask" onclick="if(event.target===this)closeDialog()">
+  <div class="dialog"><button class="close" onclick="closeDialog()" aria-label="关闭">×</button><div id="detail"><div class="state">加载中…</div></div></div>
+</div>
+
+<script>
+const TOKEN = localStorage.getItem("nb_token");
+if (!TOKEN) location.href = "/login.html";
+const H = {"Authorization": "Bearer " + TOKEN};
+let page = 1, loading = false;
+
+function logout() { localStorage.removeItem("nb_token"); location.href = "/login.html"; }
+function esc(s) { return (s || "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+const TYPE_LABEL = {news: "新闻动态", notice: "通知公告", policy: "政策文件", interpretation: "政策解读", procurement: "招采公示"};
+
+async function loadMeta() {
+  const r = await (await fetch("/api/meta", {headers: H})).json();
+  const city = document.getElementById("f-city");
+  r.cities.forEach(c => city.add(new Option(c, c)));
+  const type = document.getElementById("f-type");
+  r.types.forEach(t => type.add(new Option(t.label, t.key)));
+  const tag = document.getElementById("f-tag");
+  r.tags.forEach(t => tag.add(new Option(t, t)));
+}
+
+function filterQuery() {
+  const p = new URLSearchParams();
+  const map = {city: "f-city", type: "f-type", tag: "f-tag", start: "f-start", end: "f-end", q: "f-q"};
+  for (const [k, id] of Object.entries(map)) {
+    const v = document.getElementById(id).value;
+    if (v) p.set(k === "type" ? "type" : k, v);
+  }
+  return p;
+}
+
+async function load(p) {
+  page = p;
+  document.getElementById("list").innerHTML = '<div class="state">加载中…</div>';
+  const params = filterQuery(); params.set("page", p); params.set("size", 20);
+  const r = await fetch("/api/news?" + params, {headers: H});
+  if (r.status === 401) return location.href = "/login.html";
+  const data = await r.json();
+  render(data, p === 1);
+}
+
+async function loadNext() {
+  page += 1;
+  const params = filterQuery(); params.set("page", page); params.set("size", 20);
+  const data = await (await fetch("/api/news?" + params, {headers: H})).json();
+  render(data, false);
+}
+
+function render(data, replace) {
+  const el = document.getElementById("list");
+  document.getElementById("result-count").innerHTML =
+    `共 <b>${data.total}</b> 条结果${data.total > page * 20 ? " · 已显示 " + Math.min(page * 20, data.total) : ""}`;
+  if (!data.items.length && replace) { el.innerHTML = '<div class="state"><span class="state-icon">◎</span>暂无符合条件的新闻</div>'; document.getElementById("more-btn").style.display = "none"; return; }
+  const html = data.items.map(n => `
+    <div class="news-item" onclick="openDetail(${n.id})">
+      <h3>${esc(n.title)}</h3>
+      <div class="meta">
+        <span class="chip city">${esc(n.city || "广东省")}</span>
+        <span class="chip type">${TYPE_LABEL[n.content_type] || n.content_type}</span>
+        ${(n.tags || []).map(t => `<span class="chip tag">${esc(t)}</span>`).join("")}
+        <span class="dot">${esc(n.source)}</span>
+        <span class="dot">${(n.publish_time || "").slice(0, 10)}</span>
+      </div>
+      ${n.summary ? `<div class="summary">${esc(n.summary)}</div>` : ""}
+    </div>`).join("");
+  if (replace) el.innerHTML = html; else el.insertAdjacentHTML("beforeend", html);
+  document.getElementById("more-btn").style.display = data.items.length === 20 ? "" : "none";
+}
+
+async function openDetail(id) {
+  document.getElementById("mask").classList.add("open");
+  document.getElementById("detail").innerHTML = '<div class="state">加载中…</div>';
+  window._curDetail = null;
+  const r = await fetch("/api/news/" + id, {headers: H});
+  if (r.status === 401) { localStorage.removeItem("nb_token"); location.href = "/login.html"; return; }
+  const n = await r.json();
+  window._curDetail = n;
+  const pts = (n.ai_key_points || []).map(p => `<li>${fmtPoint(p)}</li>`).join("");
+  const aiBlock = n.summary ? `
+    <h4 class="sec-title">摘要</h4><div class="ai-panel">${esc(n.summary)}</div>
+    ${pts ? `<h4 class="sec-title">核心要点</h4><ul class="points">${pts}</ul>` : ""}
+    ${n.ai_analysis ? `<h4 class="sec-title">AI 解读</h4><div class="ai-panel">${esc(n.ai_analysis)}</div>` : ""}
+    <div class="src" style="margin-top:10px">由 ${esc(n.ai_model || "AI")} 生成${n.review_status === "pending" ? ' · <span style="color:var(--warn)">待复核</span>' : ""}
+      · <a href="#" onclick="reinterpret();return false;">重新解读</a></div>`
+    : `<div class="ai-empty">
+         <span>这篇还没有 AI 解读</span>
+         <button class="btn primary" id="btn-ai-single" onclick="reinterpret()">生成 AI 解读</button>
+       </div>`;
+  document.getElementById("detail").innerHTML = `
+    <h2>${esc(n.title)}</h2>
+    <div class="src">
+      来源：${esc(n.source)} · ${esc(n.city || "广东省")} · 发布于 ${(n.publish_time || "").slice(0, 10)}
+      · <a href="${esc(n.url)}" target="_blank">查看原文 ↗</a>
+      <span class="chip type" style="margin-left:4px">${TYPE_LABEL[n.content_type] || n.content_type}</span>
+    </div>
+    ${aiBlock}
+    <h4 class="sec-title">原文</h4><div class="orig">${esc(n.content_text) || "（正文未抓取到，请点击上方链接查看原文）"}</div>`;
+}
+
+/* 要点格式化：兼容旧数据的 dict 字符串，渲染为「字段：值」结构 */
+function fmtPoint(p) {
+  let s = String(p);
+  if (s.includes("{") && s.includes(":")) {
+    const pairs = [...s.matchAll(/['"]?([^'":{}，,]+?)['"]?\s*[：:]\s*['"]([^'"]*?)['"]/g)];
+    if (pairs.length >= 2) {
+      return pairs.map(([, k, v]) => `<span class="kv"><i>${esc(k.trim())}</i>${esc(v.trim())}</span>`).join("");
+    }
+  }
+  return esc(s);
+}
+
+async function reinterpret() {
+  const n = window._curDetail;
+  if (!n) return;
+  const btn = document.getElementById("btn-ai-single");
+  if (btn) { btn.disabled = true; btn.textContent = "AI 解读生成中（约10-20秒）…"; }
+  else { document.querySelector(".dialog").insertAdjacentHTML("afterbegin", '<div class="state" id="re-interpreting" style="padding:16px 0">正在重新解读…</div>'); }
+  const r = await (await fetch(`/api/news/${n.id}/interpret`, {method: "POST", headers: H})).json();
+  const box = document.getElementById("re-interpreting"); if (box) box.remove();
+  if (!r.ok) { alert("解读失败：" + (r.error || "请稍后重试")); if (btn) { btn.disabled = false; btn.textContent = "生成 AI 解读"; } return; }
+  openDetail(n.id);  // 重新加载展示结果
+}
+function closeDialog() { document.getElementById("mask").classList.remove("open"); }
+document.addEventListener("keydown", e => { if (e.key === "Escape") closeDialog(); });
+
+function resetFilters() {
+  ["f-city","f-type","f-tag","f-start","f-end","f-q"].forEach(id => document.getElementById(id).value = "");
+  load(1);
+}
+document.getElementById("f-q").addEventListener("keydown", e => { if (e.key === "Enter") load(1); });
+loadMeta().then(() => load(1));
+</script>
+</body>
+</html>

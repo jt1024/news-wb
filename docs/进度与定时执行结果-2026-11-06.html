@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>政务新闻平台 · 进度与今早定时执行结果（11-06）</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f5f7fa;color:#1f2937;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC",Arial,sans-serif;line-height:1.7;font-size:15px}
+.wrap{max-width:760px;margin:0 auto;padding:20px 16px 40px}
+.hero{background:#173f8a;color:#fff;border-radius:14px;padding:22px;margin-bottom:16px}
+.hero h1{margin:0 0 8px;font-size:21px}.hero p{margin:0;opacity:.9;font-size:13px}
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin-bottom:16px}
+.kpi{background:#fff;border-radius:11px;padding:14px 8px;text-align:center}.kpi b{display:block;font-size:22px;color:#173f8a}.kpi span{font-size:11px;color:#6b7280}
+.card{background:#fff;border-radius:12px;padding:18px 20px;margin-bottom:14px}
+.card h2{margin:0 0 10px;font-size:17px;color:#173f8a;border-left:4px solid #2563a8;padding-left:10px}
+.alert{background:#fff7ed;border:1px solid #fed7aa}.alert h2{color:#b45309;border-left-color:#ea580c}
+.badge{background:#ea580c;color:#fff;border-radius:5px;padding:1px 8px;font-size:12px}
+ul{margin:8px 0;padding-left:20px}li{margin:5px 0}
+table{width:100%;border-collapse:collapse;font-size:13px;margin-top:8px}
+th,td{border-bottom:1px solid #eef0f3;padding:8px 6px;text-align:left;vertical-align:top}th{background:#fafbfc;color:#6b7280}
+.muted{color:#6b7280;font-size:12px}.foot{text-align:center;color:#9ca3af;font-size:12px;margin-top:20px}
+@media(max-width:420px){.kpis{grid-template-columns:repeat(2,1fr)}}
+</style>
+</head>
+<body><div class="wrap">
+<div class="hero">
+<h1>政务新闻聚合平台<br>进度与今早定时执行结果</h1>
+<p>2026-11-06 07:15 更新 · 广东省政务新闻采集 / 去重 / AI 解读 · 本地自用</p>
+</div>
+
+<div class="kpis">
+<div class="kpi"><b>236</b><span>新闻总量</span></div>
+<div class="kpi"><b>25</b><span>启用源</span></div>
+<div class="kpi"><b>20</b><span>覆盖地区</span></div>
+<div class="kpi"><b>0</b><span>解读失败</span></div>
+</div>
+
+<div class="card alert">
+<h2>今早 06:00 定时执行结果：未执行（已修复）</h2>
+<p><span class="badge">检查结论</span>06:00 前后 <b>0 条抓取日志</b>，库中最新抓取时间停在 00:45，自动任务被静默跳过。</p>
+<table>
+<tr><th>项目</th><th>结果</th></tr>
+<tr><td>服务进程</td><td>运行中，首页 HTTP 200 正常</td></tr>
+<tr><td>配置</td><td>当时 CRON_HOUR=6 / MINUTE=0 无误；系统 06:00 前后未休眠</td></tr>
+<tr><td>根因</td><td>APScheduler 默认 misfire_grace_time 仅 1 秒，后台进程被短暂节流时触发点直接丢弃</td></tr>
+<tr><td>已修复</td><td>注册任务加 <code>misfire_grace_time=3600</code> + <code>coalesce=True</code>（错过 1 小时内补跑）</td></tr>
+<tr><td>同时调整</td><td>定时改为每天 3 次：<b>06:00 / 12:00 / 21:00</b>（CRON_HOURS=6,12,21），已重启生效</td></tr>
+<tr><td>下一次验证</td><td><b>今天 12:00</b>，修复后首次真实自动周期，届时看 fetch_logs 是否新增</td></tr>
+</table>
+<p class="muted">06:00 那一轮已过去，修复在 06:42 之后才生效，今天不会补跑。</p>
+</div>
+
+<div class="card">
+<h2>数据现状（07:05 实测）</h2>
+<ul>
+<li><b>236 条新闻全部已 AI 解读</b>，ai_error 为 0，无积压、无失败待重试。</li>
+<li><b>25 个源全部启用</b>：省级 1 个 + 19 个地市，缺梅州（源站 WAF 挑战 + 521，暂无法程序接入）。</li>
+<li>抓取日志 80 条；最近一轮有效采集在 00:44–00:45，新增 40 条（珠海 / 茂名 / 东莞修复后重抓）。</li>
+<li>标签 44 个；正文噪音体检 <b>25/25 源提取正常、库内 0 条可疑</b>。</li>
+<li>AI 模型分级：常规 MiniMax-M3.1-Flash，政策类自动切 MiniMax-M3（实测置信度 0.98）。</li>
+</ul>
+</div>
+
+<div class="card">
+<h2>已完成</h2>
+<table>
+<tr><th>阶段</th><th>内容</th></tr>
+<tr><td>一期</td><td>三市抓取、三层去重（URL 哈希 / 标题指纹 / SimHash64）、SQLite 落库、口令登录、新闻流 / 筛选 / 搜索 / 详情</td></tr>
+<tr><td>一期 1.5</td><td>扩到 25 源、珠海 JSON 接口接入、后台实时进度 / 批次可配 / 单篇手动解读、无状态 HMAC 令牌（重启不掉登录）、AI 重试 + 失败原因落库 + 模型分级、源管理表单</td></tr>
+<tr><td>数据治理</td><td>4 轮正文噪音清洗（17+ 类版式模式）、标题剥离 bug 修复与单测、全源体检脚本 scripts/audit_sources.py</td></tr>
+<tr><td>自动化</td><td>06:40 每日检查任务已执行并产出本结论；活页连接器已授权、结果可推微信</td></tr>
+</table>
+</div>
+
+<div class="card">
+<h2>待办与风险</h2>
+<table>
+<tr><th>优先级</th><th>事项</th><th>说明</th></tr>
+<tr><td>高</td><td>服务常驻</td><td>plist 已生成在 ~/Library/LaunchAgents/com.jt.gov-news.plist，需在 macOS「终端」执行一次安装脚本完成注册；WorkBuddy 会话内 launchctl 被系统拒绝</td></tr>
+<tr><td>高</td><td>12:00 验证</td><td>确认 misfire 修复后自动周期真的会跑</td></tr>
+<tr><td>中</td><td>上云</td><td>PostgreSQL + systemd + nginx；日增几千条需拆抓取 / 解读 worker</td></tr>
+<tr><td>中</td><td>梅州接入 / 政策走向分析</td><td>等源站恢复；趋势模块基于已解读数据</td></tr>
+<tr><td>低</td><td>小程序 / 公众号</td><td>架构已预留，复用 /api/* 接口</td></tr>
+</table>
+</div>
+
+<div class="foot">由 WorkBuddy 生成 · 数据截至 2026-11-06 07:15</div>
+</div></body></html>

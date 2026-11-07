@@ -1,0 +1,192 @@
+[
+ {
+  "name": "广东省人民政府",
+  "city": "广东省",
+  "level": "province",
+  "base_url": "https://www.gd.gov.cn",
+  "status": "ok",
+  "list_url": "https://www.gd.gov.cn/gdywdt/index.html",
+  "column": "要闻动态",
+  "items": 40
+ },
+ {
+  "name": "珠海市人民政府",
+  "city": "珠海市",
+  "level": "city",
+  "base_url": "https://www.zhuhai.gov.cn",
+  "status": "fail",
+  "list_url": "",
+  "column": "",
+  "items": 0
+ },
+ {
+  "name": "汕头市人民政府",
+  "city": "汕头市",
+  "level": "city",
+  "base_url": "https://www.shantou.gov.cn",
+  "status": "ok",
+  "list_url": "https://www.shantou.gov.cn/cnst/ywdt/styw/index.html",
+  "column": "汕头要闻",
+  "items": 19
+ },
+ {
+  "name": "韶关市人民政府",
+  "city": "韶关市",
+  "level": "city",
+  "base_url": "https://www.sg.gov.cn",
+  "status": "ok",
+  "list_url": "https://www.sg.gov.cn/xw/xwzx/bdxw/index.html",
+  "column": "韶关要闻",
+  "items": 11
+ },
+ {
+  "name": "湛江市人民政府",
+  "city": "湛江市",
+  "level": "city",
+  "base_url": "https://www.zhanjiang.gov.cn",
+  "status": "fail",
+  "list_url": "",
+  "column": "",
+  "items": 0
+ },
+ {
+  "name": "肇庆市人民政府",
+  "city": "肇庆市",
+  "level": "city",
+  "base_url": "https://www.zhaoqing.gov.cn",
+  "status": "ok",
+  "list_url": "https://www.zhaoqing.gov.cn/xwzx/zqyw/index.html",
+  "column": "肇庆要闻",
+  "items": 16
+ },
+ {
+  "name": "江门市人民政府",
+  "city": "江门市",
+  "level": "city",
+  "base_url": "https://www.jiangmen.gov.cn",
+  "status": "ok",
+  "list_url": "http://www.jiangmen.gov.cn/home/zwyw/index.html",
+  "column": "政务要闻",
+  "items": 15
+ },
+ {
+  "name": "茂名市人民政府",
+  "city": "茂名市",
+  "level": "city",
+  "base_url": "https://www.maoming.gov.cn",
+  "status": "fail",
+  "list_url": "",
+  "column": "",
+  "items": 0
+ },
+ {
+  "name": "惠州市人民政府",
+  "city": "惠州市",
+  "level": "city",
+  "base_url": "https://www.huizhou.gov.cn",
+  "status": "ok",
+  "list_url": "http://www.huizhou.gov.cn/zwgk/hzsz/zwyw/index.html",
+  "column": "政务要闻",
+  "items": 20
+ },
+ {
+  "name": "梅州市人民政府",
+  "city": "梅州市",
+  "level": "city",
+  "base_url": "https://www.meizhou.gov.cn",
+  "status": "fail",
+  "list_url": "",
+  "column": "",
+  "items": 0
+ },
+ {
+  "name": "汕尾市人民政府",
+  "city": "汕尾市",
+  "level": "city",
+  "base_url": "https://www.shanwei.gov.cn",
+  "status": "ok",
+  "list_url": "https://www.shanwei.gov.cn/shanwei/zwgk/jcxx/zwdt/zwyw/index.html",
+  "column": "政务要闻",
+  "items": 20
+ },
+ {
+  "name": "河源市人民政府",
+  "city": "河源市",
+  "level": "city",
+  "base_url": "https://www.heyuan.gov.cn",
+  "status": "ok",
+  "list_url": "http://www.heyuan.gov.cn/ywdt/index.html",
+  "column": "要闻动态",
+  "items": 29
+ },
+ {
+  "name": "阳江市人民政府",
+  "city": "阳江市",
+  "level": "city",
+  "base_url": "https://www.yangjiang.gov.cn",
+  "status": "ok",
+  "list_url": "https://www.yangjiang.gov.cn/yj/ywdt/index.html",
+  "column": "要闻动态",
+  "items": 10
+ },
+ {
+  "name": "清远市人民政府",
+  "city": "清远市",
+  "level": "city",
+  "base_url": "https://www.qy.gov.cn",
+  "status": "ok",
+  "list_url": "https://www.qy.gov.cn/qy/0400/list.shtml",
+  "column": "动态要闻",
+  "items": 20
+ },
+ {
+  "name": "东莞市人民政府",
+  "city": "东莞市",
+  "level": "city",
+  "base_url": "https://www.dg.gov.cn",
+  "status": "ok",
+  "list_url": "https://www.dg.gov.cn/jjdz/dzyw/index.html",
+  "column": "东莞要闻",
+  "items": 10
+ },
+ {
+  "name": "中山市人民政府",
+  "city": "中山市",
+  "level": "city",
+  "base_url": "https://www.zs.gov.cn",
+  "status": "ok",
+  "list_url": "https://www.zs.gov.cn/ywdt/index.html",
+  "column": "要闻动态",
+  "items": 23
+ },
+ {
+  "name": "潮州市人民政府",
+  "city": "潮州市",
+  "level": "city",
+  "base_url": "https://www.chaozhou.gov.cn",
+  "status": "fail",
+  "list_url": "",
+  "column": "",
+  "items": 0
+ },
+ {
+  "name": "揭阳市人民政府",
+  "city": "揭阳市",
+  "level": "city",
+  "base_url": "https://www.jieyang.gov.cn",
+  "status": "fail",
+  "list_url": "",
+  "column": "",
+  "items": 0
+ },
+ {
+  "name": "云浮市人民政府",
+  "city": "云浮市",
+  "level": "city",
+  "base_url": "https://www.yunfu.gov.cn",
+  "status": "ok",
+  "list_url": "https://www.yunfu.gov.cn/zxzx/yfyw/index.html",
+  "column": "云浮要闻",
+  "items": 17
+ }
+]

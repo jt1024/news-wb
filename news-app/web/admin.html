@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>后台管理 - 政务新闻聚合平台</title>
+<link rel="stylesheet" href="/ui.css">
+<style>
+  /* ---- 本页专属（遵循 ui.css 令牌） ---- */
+  .page { max-width: 1000px; margin: var(--sp-5) auto 0; padding: 0 var(--sp-6) 64px; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .live { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ok); }
+  .live::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--ok); animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+  .hint { font-size: 12px; color: var(--text-3); }
+  .status-ok { color: var(--ok); } .status-err { color: var(--err); } .status-warn { color: var(--warn); }
+  .cell-ellipsis { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rev-item { border: 1px solid var(--border-2); border-radius: var(--r-md); padding: 14px 16px; margin-bottom: 10px; }
+  .rev-item b { font-size: 14px; }
+  .rev-item p { font-size: 13px; color: var(--text-2); margin: 8px 0; line-height: 1.7; }
+  .rev-actions { display: flex; gap: 8px; }
+  .none { color: var(--text-3); font-size: 13px; }
+  details summary { cursor: pointer; font-size: 13px; color: var(--link); user-select: none; }
+  .form-input { width: 100%; }
+</style>
+</head>
+<body>
+
+<header class="site-header">
+  <div class="brand">
+    <span class="brand-mark">政</span>
+    <h1>后台管理</h1>
+    <span class="live">实时刷新中</span>
+  </div>
+  <nav class="site-nav">
+    <a href="/">返回新闻流</a>
+    <a href="#" onclick="localStorage.removeItem('nb_token');location.href='/login.html';return false;">退出</a>
+  </nav>
+</header>
+
+<main class="page">
+  <div class="card">
+    <h2>手动触发</h2>
+    <div class="row">
+      <button class="btn primary" id="btn-fetch" onclick="trigger('fetch')">立即抓取更新</button>
+      <button class="btn primary" id="btn-ai" onclick="trigger('interpret')">立即 AI 解读</button>
+      <label style="font-size:13px;color:var(--text-2)">每批条数
+        <input type="number" id="batch-size" value="20" min="1" max="100"
+               style="width:64px;padding:6px 8px;margin-left:6px">
+      </label>
+      <span class="hint">按钮会持续消化积压直到全部解读完</span>
+      <span id="trigger-msg" style="font-size:13px;color:var(--ok)"></span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>数据概览</h2>
+    <div id="stats" class="stat-grid"></div>
+  </div>
+
+  <div class="card">
+    <h2>执行报告 <span class="hint" style="font-weight:400">（每轮抓取后自动生成并推送）</span></h2>
+    <div class="row" style="margin-bottom:12px">
+      <button class="btn primary" id="btn-report" onclick="genReport()">立即生成并推送</button>
+      <span class="hint">生成最近一轮报告；推送渠道在 .env 的 NOTIFY_CHANNEL 配置</span>
+      <span id="report-msg" style="font-size:13px;color:var(--ok)"></span>
+    </div>
+    <div id="reports"><span class="none">加载中…</span></div>
+  </div>
+
+  <div class="card">
+    <h2>任务状态</h2>
+    <div id="tasks"><span class="none">暂无任务 —— 点击上方按钮触发</span></div>
+  </div>
+
+  <div class="card">
+    <h2>源站点 <span class="hint" style="font-weight:400">（共 <span id="src-count">-</span> 个）</span></h2>
+    <div class="table-wrap">
+    <table><thead><tr><th>ID</th><th>名称</th><th>地市</th><th>列表页</th><th>状态</th><th>上次抓取</th><th>操作</th></tr></thead>
+    <tbody id="sources"><tr><td colspan="7">加载中…</td></tr></tbody></table>
+    </div>
+    <details style="margin-top:14px">
+      <summary>新增源站点</summary>
+      <div class="row" style="margin-top:12px;align-items:flex-start">
+        <input id="ns-name" class="form-input" placeholder="名称，如：珠海市人民政府 - 珠海要闻" style="flex:1;min-width:220px;padding:8px">
+        <input id="ns-city" placeholder="地市，如：珠海市" style="width:110px;padding:8px">
+        <select id="ns-level" style="padding:8px">
+          <option value="city">市级</option><option value="province">省级</option><option value="district">区县级</option>
+        </select>
+        <input id="ns-url" placeholder="列表页 URL，如：https://www.xx.gov.cn/xw/" style="flex:1;min-width:260px;padding:8px">
+        <button class="btn primary" onclick="addSource()">添加</button>
+      </div>
+      <div class="hint" style="margin-top:6px">正文提取未配置时自动用智能启发式；保存后立即生效，下次抓取即收录。</div>
+    </details>
+  </div>
+
+  <div class="card">
+    <h2>最近抓取日志</h2>
+    <div class="table-wrap">
+    <table><thead><tr><th>时间</th><th>源</th><th>状态</th><th>发现</th><th>入库</th><th>去重</th><th>错误</th></tr></thead>
+    <tbody id="logs"><tr><td colspan="7">加载中…</td></tr></tbody></table>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>待复核 AI 解读</h2>
+    <div id="review">加载中…</div>
+  </div>
+</main>
+
+<script>
+const TOKEN = localStorage.getItem("nb_token");
+if (!TOKEN) location.href = "/login.html";
+const H = {"Authorization": "Bearer " + TOKEN, "Content-Type": "application/json"};
+
+const TASK_NAME = {fetch: "抓取更新", interpret: "AI 解读"};
+const STATUS_BADGE = {running: ["运行中", "running"], ok: ["已完成", "ok"], error: ["失败", "error"]};
+const TYPE_LABEL = {news: "新闻动态", notice: "通知公告", policy: "政策文件", interpretation: "政策解读", procurement: "招采公示"};
+
+/* 401 统一处理：令牌失效（如服务重启/过期）→ 清除并跳登录 */
+async function api(url) {
+  const r = await fetch(url, {headers: H});
+  if (r.status === 401) { localStorage.removeItem("nb_token"); location.href = "/login.html"; throw new Error("unauthorized"); }
+  return r.json();
+}
+
+/* ---- 任务状态：人性化渲染 ---- */
+function humanResult(name, r) {
+  if (r === null || r === undefined) return "";
+  if (typeof r === "string") return r;
+  if (name === "fetch" && r.results) {
+    return `共 ${r.sources} 个源：` + r.results.map(x => {
+      const short = (x.source.split(" - ")[1]) || x.source;
+      if (x.status !== "ok") return `${short} ❌失败`;
+      return `${short} 入库 ${x.inserted} 条、去重跳过 ${x.duplicated} 条` + (x.error ? "（部分异常）" : "");
+    }).join("；");
+  }
+  if (name === "interpret") {
+    if (r.rounds > 1) return `共 ${r.rounds} 批：累计解读 ${r.processed} 条，成功 ${r.ok}，失败 ${r.failed}`;
+    return `本批处理 ${r.processed} 条：成功 ${r.ok}，失败 ${r.failed}`;
+  }
+  return JSON.stringify(r);
+}
+
+function renderTasks(tasks) {
+  const el = document.getElementById("tasks");
+  const ids = Object.keys(tasks);
+  if (!ids.length) { el.innerHTML = '<span class="none">暂无任务 —— 点击上方按钮触发</span>'; return; }
+  el.innerHTML = ids.map(id => {
+    const t = tasks[id];
+    const [label, cls] = STATUS_BADGE[t.status] || [t.status, ""];
+    let inner = `
+      <div class="task-head">
+        <b>${TASK_NAME[t.name] || t.name}</b>
+        <span class="badge ${cls}">${label}</span>
+        <span class="task-time">${(t.started_at || "").replace("T", " ")}${t.finished_at ? " → " + t.finished_at.replace("T", " ") : ""}</span>
+      </div>`;
+    if (t.status === "running" && t.progress && t.progress.total > 0) {
+      const pct = Math.round(t.progress.done / t.progress.total * 100);
+      inner += `
+        <div class="task-current">正在处理（${t.progress.done + 1}/${t.progress.total}）：${t.progress.current || ""}</div>
+        <div class="progress-wrap"><div class="progress-bar" style="width:${pct}%"></div></div>
+        <div class="progress-text">${t.progress.phase || ""} · ${pct}%</div>`;
+    } else if (t.status === "running") {
+      inner += `<div class="task-current">正在准备…</div>`;
+    }
+    const res = humanResult(t.name, t.result);
+    if (res) inner += `<div class="task-current">${t.status === "error" ? '<span class="status-err">错误：' : ""}${res}${t.status === "error" ? "</span>" : ""}</div>`;
+    return `<div class="task-card">${inner}</div>`;
+  }).join("");
+}
+
+/* ---- 轻量轮询：概览 + 任务（2.5s） ---- */
+async function pollStats() {
+  try {
+    const s = await api("/api/admin/status");
+    if (s.tasks) renderTasks(s.tasks);
+    document.getElementById("stats").innerHTML = `
+      <span class="stat"><b>${s.counts.fetched}</b><span>待解读</span></span>
+      <span class="stat"><b>${s.counts.interpreted}</b><span>已解读</span></span>
+      <span class="stat"><b>${s.pending_review}</b><span>待复核</span></span>
+      <span class="stat"><b>${s.counts.skipped}</b><span>去重跳过</span></span>`;
+    const running = Object.values(s.tasks || {}).filter(t => t.status === "running").map(t => t.name);
+    document.getElementById("btn-fetch").disabled = running.includes("fetch");
+    document.getElementById("btn-ai").disabled = running.includes("interpret");
+    if (running.length) setTimeout(pollStats, 1500); // 有任务运行时加快刷新
+  } catch (e) { /* 服务重启中等下一次 */ }
+}
+
+/* ---- 触发 ---- */
+async function trigger(kind) {
+  const btn = document.getElementById(kind === "fetch" ? "btn-fetch" : "btn-ai");
+  btn.disabled = true;
+  let url = `/api/admin/trigger-${kind}`;
+  if (kind === "interpret") {
+    const n = parseInt(document.getElementById("batch-size").value) || 20;
+    url += `?batch_size=${n}`;
+  }
+  const r = await fetch(url, {method: "POST", headers: H, body: "{}"});
+  const data = await r.json();
+  document.getElementById("trigger-msg").textContent = data.message || "已触发";
+  setTimeout(() => document.getElementById("trigger-msg").textContent = "", 4000);
+  pollStats(); loadHeavy();
+}
+
+/* ---- 重数据：源/日志/复核（操作后加载） ---- */
+async function loadHeavy() {
+  const srcs = await api("/api/admin/sources");
+  const cnt = document.getElementById("src-count");
+  if (cnt) cnt.textContent = srcs.length;
+  document.getElementById("sources").innerHTML = srcs.map(x => `
+    <tr><td>${x.id}</td><td>${x.name}</td><td>${x.city}</td>
+    <td class="cell-ellipsis">${x.list_url}</td>
+    <td class="${x.enabled ? 'status-ok' : 'status-warn'}">${x.enabled ? '启用' : '停用'}</td>
+    <td>${(x.last_fetch_at || "").slice(0, 16) || "-"}</td>
+    <td><button class="btn" onclick="toggleSource(${x.id}, ${x.enabled})">${x.enabled ? '停用' : '启用'}</button></td></tr>`).join("");
+
+  const s = await api("/api/admin/status");
+  document.getElementById("logs").innerHTML = s.recent_logs.map(l => `
+    <tr>
+      <td>${(l.started_at || "").slice(5, 16)}</td>
+      <td>${l.source_id}</td>
+      <td class="${l.status === 'ok' ? 'status-ok' : 'status-err'}">${l.status}</td>
+      <td class="num">${l.found}</td><td class="num">${l.inserted}</td><td class="num">${l.duplicated}</td>
+      <td class="cell-ellipsis status-err" style="max-width:240px">${l.error || "-"}</td>
+    </tr>`).join("") || '<tr><td colspan="7">暂无</td></tr>';
+
+  const rq = await api("/api/admin/review-queue");
+  document.getElementById("review").innerHTML = rq.length ? rq.map(n => `
+    <div class="rev-item">
+      <b>${n.title}</b> <span class="status-warn" style="font-size:12px">置信度 ${n.confidence}</span>
+      <p><b>摘要：</b>${n.summary || "-"}</p>
+      <p><b>解读：</b>${n.analysis || "-"}</p>
+      <div class="rev-actions">
+        <button class="btn primary" onclick="approve(${n.id})">通过</button>
+        <button class="btn danger-ghost" onclick="reject(${n.id})">标记失败（重置为待解读）</button>
+      </div>
+    </div>`).join("") : '<span class="none">没有待复核条目</span>';
+}
+
+async function toggleSource(id, enabled) {
+  await fetch(`/api/admin/sources/${id}`, {method: "PUT", headers: H, body: JSON.stringify({enabled: !enabled})});
+  loadHeavy();
+}
+async function addSource() {
+  const body = {
+    name: document.getElementById("ns-name").value.trim(),
+    city: document.getElementById("ns-city").value.trim(),
+    level: document.getElementById("ns-level").value,
+    list_url: document.getElementById("ns-url").value.trim(),
+    fetch_type: "html",
+  };
+  if (!body.name || !body.list_url) { alert("名称和列表页 URL 必填"); return; }
+  const r = await fetch("/api/admin/sources", {method: "POST", headers: H, body: JSON.stringify(body)});
+  const data = await r.json();
+  if (r.ok) {
+    document.getElementById("ns-name").value = ""; document.getElementById("ns-url").value = "";
+    document.getElementById("trigger-msg").textContent = "源已添加（ID " + data.id + "）";
+    loadHeavy();
+  } else {
+    alert("添加失败：" + (data.detail || "未知错误"));
+  }
+}
+async function approve(id) {
+  await fetch(`/api/admin/review/${id}`, {method: "POST", headers: H, body: JSON.stringify({})});
+  loadHeavy(); pollStats();
+}
+async function reject(id) {
+  await fetch(`/api/admin/review/${id}`, {method: "DELETE", headers: H});
+  loadHeavy(); pollStats();
+}
+
+/* ---- 执行报告 ---- */
+async function loadReports() {
+  try {
+    const r = await api("/api/admin/reports");
+    const list = r.reports || [];
+    document.getElementById("reports").innerHTML = list.length ? list.map(x => `
+      <div class="row" style="padding:7px 0;border-bottom:1px solid var(--border-2)">
+        <a href="${x.url}" target="_blank" rel="noopener" style="font-size:13px">${x.name}</a>
+        <span class="hint">${x.time} · ${(x.size / 1024).toFixed(1)} KB</span>
+        <span class="hint">HTML</span>
+      </div>`).join("") : '<span class="none">暂无报告，等待下一轮定时抓取</span>';
+  } catch (e) { /* 401 已在 api() 里处理 */ }
+}
+async function genReport() {
+  const btn = document.getElementById("btn-report");
+  btn.disabled = true; btn.textContent = "生成中…";
+  try {
+    const r = await fetch("/api/admin/generate-report", {method: "POST", headers: H});
+    const d = await r.json();
+    document.getElementById("report-msg").textContent = d.message || (d.detail || "已启动");
+    setTimeout(loadReports, 2500);
+  } catch (e) {
+    document.getElementById("report-msg").textContent = "请求失败：" + e;
+  }
+  btn.disabled = false; btn.textContent = "立即生成并推送";
+}
+
+pollStats(); loadHeavy(); loadReports();
+setInterval(pollStats, 2500);  // 常规 2.5 秒轮询；任务运行中会自动加速到 1.5 秒
+</script>
+</body>
+</html>
