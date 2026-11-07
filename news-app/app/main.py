@@ -36,6 +36,7 @@ async def startup():
     """
     Base.metadata.create_all(engine)
     _migrate(engine)
+    _check_auth_security()
     db = SessionLocal()
     try:
         added = seed_sources(db)
@@ -46,6 +47,16 @@ async def startup():
     from .scheduler import start_scheduler
 
     start_scheduler()
+
+
+def _check_auth_security():
+    """启动自检：把容易被忽略的认证风险写进日志（不阻断服务）。"""
+    log = logging.getLogger("security")
+    if not config.AUTH_SECRET:
+        log.warning("AUTH_SECRET 未配置：登录口令正兼任 token 签名密钥，建议生成独立随机串")
+    pwd = config.ADMIN_PASSWORD
+    if pwd in ("", "changeme") or (pwd.isdigit() and len(pwd) < 8):
+        log.warning("ADMIN_PASSWORD 强度偏弱；当前仅监听 127.0.0.1，若上公网必须先更换")
 
 
 def _migrate(engine):

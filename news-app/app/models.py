@@ -94,6 +94,24 @@ class NewsTag(Base):
     tag_id: Mapped[int] = mapped_column(ForeignKey("tags.id"), primary_key=True)
 
 
+class SkippedURL(Base):
+    """已确认无有效正文的条目，短期内抑制重复下载。
+
+    政府站列表里常有纯图片海报页、视频页或已下线的失效链接，正文提取为空。
+    这类条目不入库（避免污染新闻流），但下轮仍会被当成新条目重新下载，
+    每轮制造一条无意义失败备注。记录后按 TTL 静默跳过，到期自动重试。
+    """
+
+    __tablename__ = "skipped_urls"
+
+    url_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    url: Mapped[str] = mapped_column(String(1000), default="")
+    reason: Mapped[str] = mapped_column(String(20), default="empty")  # empty|not_found
+    hit_count: Mapped[int] = mapped_column(Integer, default=1)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+
+
 class FetchLog(Base):
     __tablename__ = "fetch_logs"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)

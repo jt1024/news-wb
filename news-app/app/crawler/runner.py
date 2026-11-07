@@ -9,10 +9,46 @@ from sqlalchemy.orm import Session
 from .. import config
 from ..db import SessionLocal
 from ..dedup import hamming_distance_hex, simhash64, title_hash, title_similarity, url_hash
-from ..models import FetchLog, News, Source
+from ..models import FetchLog, News, SkippedURL, Source
 from .base import Fetcher
 
 log = logging.getLogger("crawler")
+
+# 无正文/失效链接的抑制时长。到期自动解除，避免站点后来补正文却永远抓不到。
+SKIP_TTL_DAYS = 30
+
+
+def is_suppressed(db: Session, u_h: str) -> bool:
+    """命中抑制表且未过期则跳过；过期记录顺手清理。"""
+    row = db.get(SkippedURL, u_h)
+    if row is None:
+        return False
+    if row.expires_at and row.expires_at < datetime.now():
+        db.delete(row)
+        db.commit()
+        return False
+    row.hit_count = (row.hit_count or 0) + 1
+    db.commit()
+    return True
+
+
+def suppress(db: Session, u_h: str, url: str, reason: str):
+    """登记一条已知豁免（重复命中时续期）。"""
+    expires = datetime.now() + timedelta(days=SKIP_TTL_DAYS)
+    row = db.get(SkippedURL, u_h)
+    if row is None:
+        db.add(SkippedURL(url_hash=u_h, url=url, reason=reason, expires_at=expires))
+    else:
+        row.url, row.reason = url, reason
+        row.expires_at = expires
+        row.hit_count = (row.hit_count or 0) + 1
+    db.commit()
+
+
+def _is_permanent_failure(exc: Exception) -> bool:
+    """只有明确「页面不存在」才抑制；网络抖动/超时不抑制，下轮照常重试。"""
+    msg = str(exc)
+    return "HTTP 404" in msg or "HTTP 410" in msg
 
 
 def seed_sources(db: Session):
@@ -64,7 +100,7 @@ async def fetch_source(source: Source, db: Session, max_items: int = 50) -> Fetc
         fetcher = Fetcher(source)
         items = await fetcher.fetch_list(max_items=max_items)
         fetch_log.found = len(items)
-        inserted = duplicated = detail_failed = empty_skipped = 0
+        inserted = duplicated = suppressed = detail_failed = empty_skipped = 0
         for item in items:
             # URL 层判重提前：已入库的文章不再打开详情页。
             # 列表页大部分文章是历史已抓的（如 21:00 轮 576 篇中 447 篇重复），
@@ -73,6 +109,10 @@ async def fetch_source(source: Source, db: Session, max_items: int = 50) -> Fetc
             if db.execute(select(News.id).where(News.url_hash == u_h).limit(1)).scalar():
                 duplicated += 1
                 continue
+            # 已知无正文/失效链接：静默跳过，避免每轮重复下载又重复报一条异常
+            if is_suppressed(db, u_h):
+                suppressed += 1
+                continue
             # 单篇详情页失败不能拖垮整个源：跳过该篇并继续处理其余条目
             try:
                 detail = await fetcher.fetch_detail(item.url)
@@ -80,12 +120,15 @@ async def fetch_source(source: Source, db: Session, max_items: int = 50) -> Fetc
             except Exception as e:  # noqa: BLE001
                 detail_failed += 1
                 log.warning("detail skipped %s (%s)", item.url, str(e)[:120])
+                if _is_permanent_failure(e):
+                    suppress(db, u_h, item.url, "not_found")
                 continue
             # 兜底：正文为空/极短的（栏目页、图片页、JS 渲染页）不入库，
             # 否则会生成「正文缺失」的无意义 AI 解读并污染复核队列
             if len((text or "").strip()) < 30:
                 empty_skipped += 1
                 log.warning("empty content skipped %s (%s)", item.url, item.title[:30])
+                suppress(db, u_h, item.url, "empty")
                 continue
             s_hash = simhash64(text) if len(text) > 200 else ""
             t_h = title_hash(item.title)
@@ -117,7 +160,10 @@ async def fetch_source(source: Source, db: Session, max_items: int = 50) -> Fetc
         if detail_failed:
             notes.append(f"{detail_failed}/{len(items)} 篇详情抓取失败已跳过")
         if empty_skipped:
-            notes.append(f"{empty_skipped} 篇空正文已跳过")
+            notes.append(f"{empty_skipped} 篇无正文已抑制（{SKIP_TTL_DAYS} 天内不重试）")
+        if suppressed:
+            # 已知豁免是正常状态，不写进 error 备注污染报告，只在运行日志留痕
+            log.info("source %s: %d known-exempt urls skipped", source.name, suppressed)
         if notes:
             # 记在 error 字段供后台查看，但状态仍为 ok（源本身可用）
             fetch_log.error = "；".join(notes)

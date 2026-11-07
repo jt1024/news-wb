@@ -106,6 +106,20 @@ def _clean_title(raw: str) -> str:
     return re.sub(r"\s+", " ", t).strip()
 
 
+def same_site(url: str, base_url: str) -> bool:
+    """判断详情页 URL 是否属于源站（同主机或子域/父域）。
+
+    列表页常混入「适老化无障碍服务」「友情链接」等图标外链，标题够长时会被
+    当成新闻条目，抓详情页又必然失败。历史 728 篇入库文章的主机全部与源站
+    一致，因此同站过滤是安全的。主机解析不出来时放行，避免误杀相对/异常 URL。
+    """
+    h = (urlparse(url).hostname or "").lower().removeprefix("www.")
+    b = (urlparse(base_url).hostname or "").lower().removeprefix("www.")
+    if not h or not b:
+        return True
+    return h == b or h.endswith("." + b) or b.endswith("." + h)
+
+
 def _parse_date(text: str) -> datetime | None:
     for pat in DATE_PATTERNS:
         m = re.search(pat, text)
@@ -276,6 +290,8 @@ class Fetcher:
             if not href or not title or len(title) < 8:
                 continue
             url = self._prefer_https(urljoin(self.source.list_url, href))
+            if not same_site(url, self.source.base_url or self.source.list_url):
+                continue
             if not re.search(r"(post_|content/|art/|\.(html|shtml)$)", url):
                 continue
             # 栏目首页（/index.html、/index_2.html 等）不是新闻详情，

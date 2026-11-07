@@ -13,7 +13,7 @@ TOKEN_EXPIRE_SECONDS = config.AUTH_TOKEN_EXPIRE_HOURS * 3600
 
 
 def _sign(exp: str) -> str:
-    return hmac.new(config.ADMIN_PASSWORD.encode("utf-8"), exp.encode(), hashlib.sha256).hexdigest()
+    return hmac.new(config.auth_signing_key().encode("utf-8"), exp.encode(), hashlib.sha256).hexdigest()
 
 
 def create_token() -> str:

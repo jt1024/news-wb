@@ -8,7 +8,14 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / ".env")
 
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "changeme")
+# 登录口令与 token 签名密钥分离：口令可能被人记住/复用且强度有限，
+# 签名密钥应是独立的高熵随机串。未配置时回退旧口令，保证老部署仍可用。
+AUTH_SECRET = os.getenv("AUTH_SECRET", "").strip()
 AUTH_TOKEN_EXPIRE_HOURS = int(os.getenv("AUTH_TOKEN_EXPIRE_HOURS", "72"))
+
+
+def auth_signing_key() -> str:
+    return AUTH_SECRET or ADMIN_PASSWORD
 
 DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{BASE_DIR / 'data' / 'news.db'}")
 
