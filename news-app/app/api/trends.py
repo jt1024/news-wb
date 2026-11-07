@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from ..auth import require_auth
 from ..db import get_db
+from ..trends_extra import city_topic_matrix, policy_chains
 
 router = APIRouter(dependencies=[Depends(require_auth)])
 
@@ -134,6 +135,14 @@ def trends(days: int = Query(30, ge=7, le=365), db: Session = Depends(get_db)):
         text("SELECT count(*) FROM news WHERE publish_time >= :start"), {"start": start}
     ).scalar()
 
+    # ---- 6. 政策信号串联 + 同主题地市对比 ----
+    signals = policy_chains(db, start)
+    matrix = city_topic_matrix(
+        db, start,
+        [t["tag"] for t in topics[:8]],
+        [c["city"] for c in city_totals[:10]],
+    )
+
     return {
         "days": days,
         "total": total,
@@ -142,5 +151,7 @@ def trends(days: int = Query(30, ge=7, le=365), db: Session = Depends(get_db)):
         "type_totals": type_totals,
         "topics": topics,
         "rising": rising,
+        "signals": signals,
+        "matrix": matrix,
         "generated_at": now.isoformat(timespec="seconds"),
     }

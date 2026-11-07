@@ -8,7 +8,8 @@
 |---|---|
 | 覆盖 | 27 源 / 21 地市（含梅州，WAF JS 挑战已破解） |
 | 库存 | 稳态日增约 20–50 篇（按发布日期统计），新文章当轮自动解读、常态待解读为 0 |
-| 自动化 | 抓取 → 解读 → 热备 → 执行报告 → 飞书推送，全程无人值守 |
+| 自动化 | 抓取 → 解读 → 热备 → 执行报告 → 飞书推送（含手机可看的完整报告链接），全程无人值守 |
+| 周期性 | 每天 09:00 独立存活心跳；周一推上周周报、每月 1 日推上月月报（含 AI 综述） |
 | 运行环境 | 项目自带 Python 3.13 解释器与依赖，不依赖系统 Python 或 WorkBuddy |
 | 版本控制 | GitHub `jt1024/news-wb`，密钥与运行数据由 `.gitignore` 排除 |
 
@@ -34,7 +35,7 @@ runtime/python313/bin/python3 -m venv .venv   # 用项目自带解释器，或�
 .venv/bin/pip install -r requirements.txt
 cp .env.example .env                          # 必填：ADMIN_PASSWORD、AUTH_SECRET、AI_API_KEY、NOTIFY_*
 chmod 600 .env
-.venv/bin/python scripts/run_tests.py         # 45 个单测，0.1 秒
+.venv/bin/python scripts/run_tests.py         # 61 个单测，0.2 秒
 .venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8300
 ```
 
@@ -45,9 +46,9 @@ chmod 600 .env
 | 地址 | 用途 |
 |---|---|
 | http://127.0.0.1:8300/ | 新闻流：按地域/类型/时间筛选、搜索、详情页与单篇手动解读 |
-| http://127.0.0.1:8300/trends.html | 政策走向分析：日走势、地市分布、主题热度、上升话题（ECharts） |
-| http://127.0.0.1:8300/admin | 管理后台：手动触发抓取/解读、实时进度、源管理、复核队列、执行报告列表 |
-| http://127.0.0.1:8300/reports/ | 历史执行报告（独立 HTML，手机访问需另做公网发布） |
+| http://127.0.0.1:8300/trends.html | 政策走向分析：日走势、地市分布、主题热度、上升话题、政策信号串联、同主题地市热力图（ECharts） |
+| http://127.0.0.1:8300/admin | 管理后台：手动触发抓取/解读、实时进度、源管理、复核队列、执行报告与周/月报列表 |
+| http://127.0.0.1:8300/reports/ | 历史执行报告、周报、月报；`latest.html` 恒为最新一轮（在线固定链接同步它） |
 
 登录用 `.env` 的 `ADMIN_PASSWORD`。登录态是无状态 HMAC 令牌，由**独立的** `AUTH_SECRET` 签发，服务重启不掉登录；更换 `AUTH_SECRET` 会使所有已登录会话失效。
 
@@ -71,6 +72,8 @@ chmod 600 .env
 | NOTIFY_WEBHOOK | feishu / wecom / custom 的机器人地址；custom 收到 `{title, text, markdown, report_html, report_md, round}` JSON |
 | NOTIFY_TOKEN | serverchan（Server酱 Turbo）/ pushplus 的 token |
 | NOTIFY_SECRET | 飞书机器人开启签名校验时填写，留空表示未开启 |
+| REPORT_PUBLIC_URL | 在线完整报告的固定链接（活页发布后填入）；飞书卡片据此生成「查看完整报告」按钮 |
+| LIVEPAGE_PROPOSAL_ID | 该链接对应的活页方案 ID，供定时自动化每轮发新版本；留空则只生成本机 `latest.html` |
 | BACKUP_KEEP_DAYS / BACKUP_MIRROR_DIR | 热备保留天数（14）/ 可选异地镜像绝对路径（iCloud、移动硬盘） |
 
 `.env` 权限应为 `600`。服务启动会自检：未配 `AUTH_SECRET` 或口令过弱时写一条 WARNING 日志（不阻断启动）。
@@ -85,7 +88,9 @@ chmod 600 .env
   → SQLite（无正文或失效链接登记 30 天豁免，避免每轮重复下载）
   → AI 解读（批处理、重试、置信度分级复核、模型分级、402 兜底）
   → JSON API + Web 前端（新闻流 / 趋势分析 / 管理后台）
-  → 每轮收尾：数据库热备 → 执行报告 HTML+MD → 飞书推送
+  → 每轮收尾：数据库热备 → 执行报告 HTML+MD → 覆盖 latest.html → 飞书推送（带在线报告按钮）
+每日 09:00（独立进程）：存活自检 → 飞书心跳；周一/月初顺带生成并推送周报 / 月报
+每轮 +10 分钟（平台自动化）：把 latest.html 发成活页新版本，固定链接内容自动更新
 ```
 
 关键机制：
@@ -109,7 +114,35 @@ chmod 600 .env
 - 网页入口：后台「执行报告」卡片列出历史报告，可点开或「立即生成并推送」
 - 推送由 `app/notifier.py` 直连 webhook，不依赖 AI 会话；**推送失败只记日志，不影响抓取结果**
 - 手动命令：`.venv/bin/python scripts/execution_report.py --notify`（补历史用 `--all`，指定轮次用 `--run "2026-11-07 12:00"`）
-- 报告静态文件挂在 `/reports/`，服务仅监听 127.0.0.1，手机上看完整报告需另接活页或发布上线
+- 报告静态文件挂在 `/reports/`；`latest.html` 恒为最新一轮，供在线固定链接同步
+
+### 手机看完整报告
+
+服务只监听 127.0.0.1，因此完整报告通过**活页（LivePage）固定链接**发到手机：飞书卡片里带「查看完整报告」按钮，点开是当前最新一轮的全部内容（含 27 行源级明细与趋势图），链接不变、每轮自动更新。
+
+链路分两段，互不阻塞：
+
+1. **本机每轮**：`execution_report.py` 生成报告后调用 `app/publisher.py`，把最新报告覆盖为 `data/reports/latest.html`，并写 `latest.meta.json`（轮次、方案 ID、链接）。纯本地操作，不联网，永远能产出。
+2. **平台定时自动化**（每天 12:10 / 21:10）：读取 `latest.html` 全文，用活页 `publish_file` 发到同一个 `LIVEPAGE_PROPOSAL_ID`，链接恒定、版本自动切换；失败只影响在线版，本地报告与飞书推送照常。
+
+配置：把活页发布后的默认链接与方案 ID 填进 `.env` 的 `REPORT_PUBLIC_URL` / `LIVEPAGE_PROPOSAL_ID`，飞书卡片即自动加按钮。可见性在活页后台设为口令可看；**口令不要写进仓库**。
+
+### 09:00 存活心跳
+
+`scripts/heartbeat.py` 是**独立于 Web 服务进程**的自检脚本——若只挂在应用内调度器，服务整个挂掉时反而发不出告警。检查项：HTTP 200、数据库可读、近 26 小时内有抓取轮次、最新报告、最新热备、AI 解读积压、磁盘余量；正常推绿色摘要，异常推红色告警并附排障命令。
+
+双调度（同一脚本按「日期+状态」当天去重，不会重复推送）：
+
+- 系统级 `~/Library/LaunchAgents/com.jt.gov-news-heartbeat.plist`，每天 09:00；注册用 `scripts/install_heartbeat.sh`，或在访达双击 `scripts/run_heartbeat_install.command`（IDE 会话内常因 GUI 域权限无法直接 bootstrap，双击可完成）。
+- WorkBuddy 定时自动化每天 09:00 兜底，plist 尚未加载时也能告警。
+
+### 周报与月报
+
+`app/period_report.py` + `scripts/period_report.py`：统计上一完整周 / 月的发布量、日均、活跃地市、主题热度、上升信号、代表文章、抓取健康度，调用 AI 生成约 200 字政策走向综述，产出 HTML + Markdown 到 `data/reports/`（后台报告列表自动包含），并推飞书摘要。
+
+- 周一 09:00 随心跳生成上周周报；每月 1 日生成上月月报
+- **AI 失败自动降级**：402 / 429 / 超时一律改为纯统计版，报告与推送不中断
+- 手动：`.venv/bin/python scripts/period_report.py --period weekly --notify`（`--date 2026-12-01` 可指定计算基准日）
 
 ## 数据库备份与额度兜底
 
@@ -132,6 +165,12 @@ chmod 600 .env
 
 `GET /api/trends?days=7|30|90` 与 `web/trends.html`：每日新增走势、地市分布、内容类型分布、主题热度 Top（带时间序列）、上升话题（环比增量在 Python 侧计算，避免 SQLite 别名排序坑）。前端用 ECharts，双 CDN 兜底，复用 `web/ui.css` 的政务红设计令牌。
 
+P2 深化（`app/trends_extra.py`）：
+
+- **政策信号串联**：按标题关键词把文章归入「征求意见 → 正式印发 → 贯彻落实 → 政策解读」四阶段（`STAGE_RULES` 顺序即优先级），再按 AI 主题标签聚成时间线；只展示覆盖 ≥2 阶段的主题，每条链可展开各阶段代表文章。泛词（推进 / 调研 / 部署）被刻意排除，避免把日常动态误判成政策落地信号。
+- **同主题地市对比**：Top 8 主题 × Top 10 地市的交叉发文量热力图，直接看出同一议题下谁在密集发声。
+- 接口在原有返回里新增 `signals`（`chains` / `stage_totals` / `signal_total`）与 `matrix`（`topics` / `cities` / `cells` / `max`）。
+
 ## 测试
 
 ```bash
@@ -139,7 +178,7 @@ chmod 600 .env
 # 或：.venv/bin/python -m unittest discover -s tests -t . -v
 ```
 
-标准库 `unittest`，45 个用例、约 0.1 秒，覆盖标题清洗、同站过滤、列表解析、三层去重（真实 SQL）、报告轮次聚合、cron 解析、飞书签名与推送降级、认证密钥隔离、无正文豁免生命周期。
+标准库 `unittest`，61 个用例、约 0.2 秒，覆盖标题清洗、同站过滤、列表解析、三层去重（真实 SQL）、报告轮次聚合、cron 解析、飞书签名与推送降级、认证密钥隔离、无正文豁免生命周期，以及 P2 的政策阶段识别、政策链与地市矩阵（独立临时库）、周期窗口与 AI 降级、固定链接产出、飞书卡片按钮链接。
 
 `tests/__init__.py` 会把 `DATABASE_URL` 强制指向临时库，**单测绝不连接或修改生产库**。
 
@@ -149,7 +188,10 @@ chmod 600 .env
 |---|---|
 | `scripts/run_tests.py` | 一键跑全部单测 |
 | `scripts/backup_db.py` | 手动做一次数据库热备 |
-| `scripts/execution_report.py --notify` | 生成最近一轮报告并推送 |
+| `scripts/execution_report.py --notify` | 生成最近一轮报告、更新 `latest.html` 并推送 |
+| `scripts/period_report.py --period weekly --notify` | 生成上一完整周/月报告并推送（AI 综述，失败自动降级） |
+| `scripts/heartbeat.py --dry-run --no-period` | 09:00 存活自检（不推送、不触发周期报告） |
+| `scripts/install_heartbeat.sh` | 注册 09:00 心跳 LaunchAgent（配合双击 `run_heartbeat_install.command`） |
 | `scripts/interpret_backlog.py 10 2` | 消化待解读积压（批大小、间隔秒） |
 | `scripts/discover_sources.py` | 自动探测地市站点列表页 |
 | `scripts/audit_sources.py` | 全源体检：存量噪音扫描 + 逐源实时重抓验证 |
@@ -170,7 +212,7 @@ chmod 600 .env
 ## 已知事项与边界
 
 - **定位是「精要闻」**：27 源只收各市政务要闻栏目，去重后稳态日增数十篇，SQLite 完全够用；需求文档里「日均数千条」的设想对应「全量政务信息」定位，需另扩区县/部门/公示公告类源，届时再评估 PostgreSQL 与 worker 拆分。
-- 飞书里是**摘要**，完整 HTML 报告存本机 `data/reports/`，手机点不开；需要移动端看全文可接活页发链接或发布上线。
+- 飞书卡片是**摘要 + 「查看完整报告」按钮**；按钮指向活页固定链接（口令可看），每轮 12:10 / 21:10 由平台自动化发新版本。若 WorkBuddy 未运行，在线版会停在最后一轮，本机 `latest.html` 与飞书推送仍正常。
 - 未配置 AI Key 时新闻照常抓取入库（`status=fetched`），补 Key 后点「立即 AI 解读」或等下一轮自动补。
 - `.env`、`.workbuddy/`、`data/`、`.venv*`、`runtime/` 均被 `.gitignore` 排除；`scripts/` 下少数脚本含开发机绝对路径，换机器需改。
 - 需求与技术方案见 `docs/需求文档-v1.md`、`docs/技术方案-v1.md`（分期路线以实际实现为准）。

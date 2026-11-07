@@ -361,9 +361,13 @@ def main():
             f.write(build_html(d, prev, trend))
         with open(mp, "w", encoding="utf-8") as f:
             f.write(build_markdown(d, prev, trend))
+        from app.publisher import publish_local
+
+        meta = publish_local(hp, mp, key)
         print(f"已生成 {stem}: 新增 {d['agg']['inserted']} / 扫描 {d['agg']['found']} / 源 {d['agg']['sources']}")
         print(f"  {hp}")
         print(f"  {mp}")
+        print(f"  固定链接版: {meta['html']}｜在线地址: {meta['public_url'] or '未配置'}")
         if args.notify:
             from app.notifier import push_report
 

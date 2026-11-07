@@ -64,7 +64,7 @@ def _feishu_sign(secret: str) -> tuple[str, str]:
     return ts, base64.b64encode(hmac_code).decode("utf-8")
 
 
-def build_message(d: dict, html_name: str) -> tuple[str, str]:
+def build_message(d: dict, html_name: str, public_url: str = "") -> tuple[str, str]:
     """把轮次数据压成一条手机上一屏能看完的摘要。"""
     a = d["agg"]
     pending = int(d.get("pending") or 0)
@@ -114,12 +114,16 @@ def build_message(d: dict, html_name: str) -> tuple[str, str]:
     lines += [
         "",
         f"全库 {d['total']} 篇｜已解读 {d['interpreted']}｜待解读 {pending}｜AI 错误 {ai_err}",
-        f"完整报告：`data/reports/{html_name}`",
     ]
+    if public_url:
+        lines.append(f"完整报告：[在手机上查看最新一轮]({public_url})（链接固定，每轮自动更新）")
+    else:
+        lines.append(f"完整报告：`data/reports/{html_name}`")
     return title, "\n".join(lines)
 
 
-def _dispatch(title: str, markdown: str, *, red: bool = False, extra: dict | None = None) -> dict:
+def _dispatch(title: str, markdown: str, *, red: bool = False,
+              extra: dict | None = None, link: str | None = None) -> dict:
     """把一条消息发到当前配置的渠道。任何异常都被吞掉并记日志。"""
     channel = os.getenv("NOTIFY_CHANNEL", "off").strip().lower()
     if channel in ("", "off", "none"):
@@ -139,12 +143,22 @@ def _dispatch(title: str, markdown: str, *, red: bool = False, extra: dict | Non
 
     try:
         if channel == "feishu":
+            elements = [{"tag": "div", "text": {"tag": "lark_md", "content": markdown}}]
+            if link:
+                elements.append({
+                    "tag": "action",
+                    "actions": [{
+                        "tag": "button", "type": "primary",
+                        "text": {"tag": "plain_text", "content": "查看完整报告"},
+                        "url": link,
+                    }],
+                })
             payload = {
                 "msg_type": "interactive",
                 "card": {
                     "header": {"title": {"tag": "plain_text", "content": title},
                                "template": "red" if red else "green"},
-                    "elements": [{"tag": "div", "text": {"tag": "lark_md", "content": markdown}}],
+                    "elements": elements,
                 },
             }
             if secret:
@@ -178,16 +192,28 @@ def _dispatch(title: str, markdown: str, *, red: bool = False, extra: dict | Non
 
 def push_report(d: dict, html_path: str, md_path: str = "") -> dict:
     """生成报告后调用；返回推送结果字典。"""
+    from .publisher import public_url
+
     a = d["agg"]
     red = bool(a["failed"] or d.get("pending") or d.get("ai_err"))
-    title, markdown = build_message(d, os.path.basename(html_path))
-    return _dispatch(title, markdown, red=red, extra={
+    url = public_url()
+    title, markdown = build_message(d, os.path.basename(html_path), url)
+    return _dispatch(title, markdown, red=red, link=url or None, extra={
         "report_html": os.path.basename(html_path),
         "report_md": os.path.basename(md_path) if md_path else "",
+        "report_url": url,
         "round": d["key"],
     })
 
 
-def push_alert(title: str, markdown: str) -> dict:
+def push_alert(title: str, markdown: str, link: str = "") -> dict:
     """即时告警（AI 额度耗尽、系统异常等），不等下一轮报告。"""
-    return _dispatch(title, markdown, red=True, extra={"kind": "alert"})
+    return _dispatch(title, markdown, red=True, link=link or None,
+                     extra={"kind": "alert"})
+
+
+def push_notice(title: str, markdown: str, *, red: bool = False,
+                link: str = "") -> dict:
+    """一般通知：09:00 存活心跳、周报 / 月报摘要。"""
+    return _dispatch(title, markdown, red=red, link=link or None,
+                     extra={"kind": "notice"})

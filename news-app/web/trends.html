@@ -34,7 +34,28 @@
   .kpi { flex: 1; background: var(--bg-card); border: 1px solid var(--border-2); border-radius: var(--r-md); padding: 14px 18px; }
   .kpi b { display: block; font-size: 24px; line-height: 1.3; font-variant-numeric: tabular-nums; }
   .kpi span { font-size: 12px; color: var(--text-3); }
-  @media (max-width: 860px) { .chart-grid { grid-template-columns: 1fr; } .kpi-row { flex-wrap: wrap; } .kpi { min-width: 45%; } }
+  /* 政策信号链 */
+  .stage-summary { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: var(--sp-4); }
+  .stage-summary span { font-size: 12px; color: var(--text-2); background: #F7F8FA; border: 1px solid var(--border-2);
+                        border-radius: var(--r-sm); padding: 4px 10px; font-variant-numeric: tabular-nums; }
+  .chain { border: 1px solid var(--border-2); border-radius: var(--r-md); padding: 12px 14px; margin-bottom: 10px; }
+  .chain:last-child { margin-bottom: 0; }
+  .chain-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .chain-tag { font-weight: 600; font-size: 14px; min-width: 84px; }
+  .chain-meta { font-size: 12px; color: var(--text-3); margin-left: auto; font-variant-numeric: tabular-nums; }
+  .stage-flow { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; margin-top: 10px; }
+  .stage-chip { font-size: 12px; padding: 3px 9px; border-radius: 12px; border: 1px solid var(--border-2);
+                color: var(--text-3); background: #FAFAFB; white-space: nowrap; }
+  .stage-chip.on { color: #fff; background: var(--brand-600); border-color: var(--brand-600); }
+  .stage-arrow { color: var(--text-3); font-size: 11px; }
+  .chain details { margin-top: 10px; }
+  .chain summary { font-size: 12px; color: var(--brand-600); cursor: pointer; }
+  .stage-group { margin-top: 8px; font-size: 12.5px; }
+  .stage-group b { color: var(--text-2); font-weight: 600; }
+  .stage-group a { color: var(--text-1); text-decoration: none; display: block; padding: 3px 0 3px 10px; }
+  .stage-group a:hover { color: var(--brand-600); }
+  .stage-group .src { color: var(--text-3); font-size: 11.5px; margin-right: 8px; }
+  @media (max-width: 860px) { .chart-grid { grid-template-columns: 1fr; } .kpi-row { flex-wrap: wrap; } .kpi { min-width: 45%; } .chain-meta { margin-left: 0; } }
 </style>
 </head>
 <body>
@@ -73,6 +94,8 @@
     <div class="chart-card"><h2>内容类型分布</h2><div class="chart" id="c-types"></div></div>
     <div class="chart-card wide"><h2>各地市活跃度</h2><div class="chart" id="c-city" style="height:340px"></div></div>
     <div class="chart-card wide"><h2>上升话题（近 7 天 vs 前 7 天）</h2><div id="rising"></div></div>
+    <div class="chart-card wide"><h2>政策信号串联</h2><div id="signals"></div></div>
+    <div class="chart-card wide"><h2>同一主题 · 各地市发声对比</h2><div class="chart" id="c-matrix" style="height:380px"></div></div>
   </div>
 </main>
 
@@ -108,6 +131,8 @@ async function loadTrends() {
   renderTypes(d);
   renderCity(d);
   renderRising(d);
+  renderSignals(d);
+  renderMatrix(d);
   document.getElementById("charts").style.display = "";
 }
 
@@ -207,6 +232,71 @@ function renderRising(d) {
       <span class="rise-delta ${dir ? "" : "down"}">${dir ? "+" : ""}${r.delta} 条</span>
     </div>`;
   }).join("");
+}
+
+function esc(s) {
+  return String(s == null ? "" : s).replace(/[&<>"']/g, c =>
+    ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[c]);
+}
+
+function renderSignals(d) {
+  const el = document.getElementById("signals");
+  const s = d.signals || {chains: [], stage_totals: [], signal_total: 0};
+  const summary = `<div class="stage-summary">
+      <span>识别政策信号 ${s.signal_total} 条</span>
+      ${s.stage_totals.map(x => `<span>${esc(x.label)} ${x.n}</span>`).join("")}
+    </div>`;
+  if (!s.chains.length) {
+    el.innerHTML = summary + '<div class="state" style="padding:20px 0">当前范围还没有形成跨阶段的政策链条，积累更多政策文件后会自动出现</div>';
+    return;
+  }
+  el.innerHTML = summary + s.chains.map(ch => {
+    const flow = ch.stages.map((st, i) =>
+      `${i ? '<span class="stage-arrow">→</span>' : ""}<span class="stage-chip ${st.count ? "on" : ""}">${esc(st.label)}${st.count ? " " + st.count : ""}</span>`
+    ).join("");
+    const groups = ch.stages.filter(st => st.items.length).map(st => `
+      <div class="stage-group"><b>${esc(st.label)}</b>
+        ${st.items.map(it => `<a href="${esc(it.url)}" target="_blank" rel="noopener">
+          <span class="src">${esc(it.date)} · ${esc(it.city)}</span>${esc(it.title)}</a>`).join("")}
+      </div>`).join("");
+    return `<div class="chain">
+      <div class="chain-head"><span class="chain-tag">${esc(ch.tag)}</span>
+        <span class="chain-meta">覆盖 ${ch.coverage}/4 阶段 · ${ch.first_date} → ${ch.last_date} · ${ch.total} 篇</span></div>
+      <div class="stage-flow">${flow}</div>
+      <details><summary>查看各阶段代表文章</summary>${groups}</details>
+    </div>`;
+  }).join("");
+}
+
+function renderMatrix(d) {
+  const m = d.matrix || {topics: [], cities: [], cells: [], max: 0};
+  const c = makeChart("c-matrix");
+  if (!m.topics.length || !m.max) {
+    c.clear();
+    c.setOption({title: {text: "主题数据不足", left: "center", top: "center",
+                         textStyle: {color: "#8F959E", fontSize: 13, fontWeight: "normal"}}});
+    return;
+  }
+  const data = m.cells.map(x => [m.cities.indexOf(x.city), m.topics.indexOf(x.topic), x.n]);
+  c.setOption({
+    tooltip: {position: "top", formatter: p =>
+      `${m.topics[p.value[1]]} · ${m.cities[p.value[0]]}<br/><b>${p.value[2]}</b> 篇`},
+    grid: {left: 96, right: 28, top: 12, bottom: 92},
+    xAxis: {type: "category", data: m.cities, splitArea: {show: true},
+            axisLabel: {color: "#51565D", fontSize: 11, rotate: 32}},
+    yAxis: {type: "category", data: m.topics, splitArea: {show: true},
+            axisLabel: {color: "#51565D", fontSize: 12}},
+    visualMap: {min: 0, max: m.max, calculable: true, orient: "horizontal",
+                left: "center", bottom: 0, itemWidth: 12, itemHeight: 90,
+                inRange: {color: ["#FBEDEE", "#F2C3C5", "#DD7C81", "#C0181F"]},
+                textStyle: {color: "#8F959E", fontSize: 11}},
+    series: [{
+      type: "heatmap", data,
+      label: {show: true, color: "#4A4F56", fontSize: 10, formatter: p => p.value[2] || ""},
+      itemStyle: {borderColor: "#fff", borderWidth: 2},
+      emphasis: {itemStyle: {shadowBlur: 8, shadowColor: "rgba(0,0,0,.25)"}},
+    }],
+  });
 }
 
 loadTrends();
