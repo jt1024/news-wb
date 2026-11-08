@@ -24,6 +24,7 @@ class Source(Base):
     name: Mapped[str] = mapped_column(String(100))
     region_province: Mapped[str] = mapped_column(String(20), default="广东省")
     region_city: Mapped[str] = mapped_column(String(20), default="")
+    region_district: Mapped[str] = mapped_column(String(20), default="")  # 区/县，市级源为空
     level: Mapped[str] = mapped_column(String(20), default="city")  # province|city|district
     base_url: Mapped[str] = mapped_column(String(500), default="")
     list_url: Mapped[str] = mapped_column(String(500))
@@ -54,6 +55,7 @@ class News(Base):
 
     region_province: Mapped[str] = mapped_column(String(20), default="广东省")
     region_city: Mapped[str] = mapped_column(String(20), default="")
+    region_district: Mapped[str] = mapped_column(String(20), default="")
     level: Mapped[str] = mapped_column(String(20), default="city")
 
     content_type: Mapped[str] = mapped_column(String(20), default="news")

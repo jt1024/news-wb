@@ -64,18 +64,20 @@ class IsDuplicateTests(unittest.TestCase):
     def tearDown(self):
         self.db.close()
 
-    def _source(self, city="广州市"):
+    def _source(self, city="广州市", district=""):
         s = Source(name="源-" + uuid4().hex, base_url="https://www.example.gov.cn",
-                   list_url="https://www.example.gov.cn/ywdt/index.html", region_city=city)
+                   list_url="https://www.example.gov.cn/ywdt/index.html",
+                   region_city=city, region_district=district)
         self.db.add(s)
         self.db.commit()
         return s
 
-    def _news(self, source, title, url, sim="", city=None, days_ago=0):
+    def _news(self, source, title, url, sim="", city=None, days_ago=0, district=None):
         n = News(
             title=title, url=url, url_hash=url_hash(url), title_hash=title_hash(title),
             simhash_hex=sim, source_id=source.id,
             region_city=city or source.region_city,
+            region_district=(source.region_district or "") if district is None else district,
             publish_time=datetime.now() - timedelta(days=days_ago),
             content_text="正文占位",
         )
@@ -104,6 +106,27 @@ class IsDuplicateTests(unittest.TestCase):
         other = self._source(city="广州市")
         # 同标题但历史文章属于其他城市、且不是同源，不应误判
         self.assertFalse(self._dup(other, title, "https://www.example.gov.cn/b.html"))
+
+    def test_layer2_scoped_by_district(self):
+        """广州 11 区同属广州市，同题通稿不能被跨区误判为重复。"""
+        title = "全区传达学习贯彻党的二十届五中全会精神干部大会召开"
+        haizhu = self._source(district="海珠区")
+        self._news(haizhu, title, "https://www.example.gov.cn/a.html")
+        baiyun = self._source(district="白云区")
+        self.assertFalse(self._dup(baiyun, title, "https://www.example.gov.cn/b.html"))
+
+    def test_layer2_same_district_still_dedups(self):
+        title = "全区传达学习贯彻党的二十届五中全会精神干部大会召开"
+        s = self._source(district="从化区")
+        self._news(s, title, "https://www.example.gov.cn/a.html")
+        self.assertTrue(self._dup(s, title, "https://www.example.gov.cn/b.html"))
+
+    def test_city_level_source_keeps_legacy_matching(self):
+        """历史市级文章 region_district 为空，市级源仍能命中标题判重。"""
+        title = "广州市召开经济工作会议部署四季度重点工作"
+        s = self._source()
+        self._news(s, title, "https://www.example.gov.cn/a.html")
+        self.assertTrue(self._dup(s, title, "https://www.example.gov.cn/b.html"))
 
     def test_layer2_title_similarity_same_source(self):
         s = self._source()

@@ -76,14 +76,15 @@
   <div class="card">
     <h2>源站点 <span class="hint" style="font-weight:400">（共 <span id="src-count">-</span> 个）</span></h2>
     <div class="table-wrap">
-    <table><thead><tr><th>ID</th><th>名称</th><th>地市</th><th>列表页</th><th>状态</th><th>上次抓取</th><th>操作</th></tr></thead>
-    <tbody id="sources"><tr><td colspan="7">加载中…</td></tr></tbody></table>
+    <table><thead><tr><th>ID</th><th>名称</th><th>地市</th><th>区县</th><th>列表页</th><th>状态</th><th>上次抓取</th><th>操作</th></tr></thead>
+    <tbody id="sources"><tr><td colspan="8">加载中…</td></tr></tbody></table>
     </div>
     <details style="margin-top:14px">
       <summary>新增源站点</summary>
       <div class="row" style="margin-top:12px;align-items:flex-start">
         <input id="ns-name" class="form-input" placeholder="名称，如：珠海市人民政府 - 珠海要闻" style="flex:1;min-width:220px;padding:8px">
-        <input id="ns-city" placeholder="地市，如：珠海市" style="width:110px;padding:8px">
+        <input id="ns-city" placeholder="地市，如：广州市" style="width:110px;padding:8px">
+        <input id="ns-district" placeholder="区县，如：天河区" style="width:110px;padding:8px">
         <select id="ns-level" style="padding:8px">
           <option value="city">市级</option><option value="province">省级</option><option value="district">区县级</option>
         </select>
@@ -209,7 +210,7 @@ async function loadHeavy() {
   const cnt = document.getElementById("src-count");
   if (cnt) cnt.textContent = srcs.length;
   document.getElementById("sources").innerHTML = srcs.map(x => `
-    <tr><td>${x.id}</td><td>${x.name}</td><td>${x.city}</td>
+    <tr><td>${x.id}</td><td>${x.name}</td><td>${x.city}</td><td>${x.district || "-"}</td>
     <td class="cell-ellipsis">${x.list_url}</td>
     <td class="${x.enabled ? 'status-ok' : 'status-warn'}">${x.enabled ? '启用' : '停用'}</td>
     <td>${(x.last_fetch_at || "").slice(0, 16) || "-"}</td>
@@ -246,6 +247,7 @@ async function addSource() {
   const body = {
     name: document.getElementById("ns-name").value.trim(),
     city: document.getElementById("ns-city").value.trim(),
+    district: document.getElementById("ns-district").value.trim(),
     level: document.getElementById("ns-level").value,
     list_url: document.getElementById("ns-url").value.trim(),
     fetch_type: "html",

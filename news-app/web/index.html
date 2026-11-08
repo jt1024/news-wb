@@ -53,6 +53,7 @@
 <div class="filter-bar">
   <div class="filter-inner">
     <select id="f-city"><option value="">全部地市</option></select>
+    <select id="f-district" title="广州市各区新闻"><option value="">全部区县</option></select>
     <select id="f-type"><option value="">全部类型</option></select>
     <select id="f-tag"><option value="">全部主题</option></select>
     <input type="date" id="f-start">
@@ -88,6 +89,8 @@ async function loadMeta() {
   const r = await (await fetch("/api/meta", {headers: H})).json();
   const city = document.getElementById("f-city");
   r.cities.forEach(c => city.add(new Option(c, c)));
+  const district = document.getElementById("f-district");
+  (r.districts || []).forEach(d => district.add(new Option(d, d)));
   const type = document.getElementById("f-type");
   r.types.forEach(t => type.add(new Option(t.label, t.key)));
   const tag = document.getElementById("f-tag");
@@ -96,7 +99,7 @@ async function loadMeta() {
 
 function filterQuery() {
   const p = new URLSearchParams();
-  const map = {city: "f-city", type: "f-type", tag: "f-tag", start: "f-start", end: "f-end", q: "f-q"};
+  const map = {city: "f-city", district: "f-district", type: "f-type", tag: "f-tag", start: "f-start", end: "f-end", q: "f-q"};
   for (const [k, id] of Object.entries(map)) {
     const v = document.getElementById(id).value;
     if (v) p.set(k === "type" ? "type" : k, v);
@@ -131,6 +134,7 @@ function render(data, replace) {
       <h3>${esc(n.title)}</h3>
       <div class="meta">
         <span class="chip city">${esc(n.city || "广东省")}</span>
+        ${n.district ? `<span class="chip city">${esc(n.district)}</span>` : ""}
         <span class="chip type">${TYPE_LABEL[n.content_type] || n.content_type}</span>
         ${(n.tags || []).map(t => `<span class="chip tag">${esc(t)}</span>`).join("")}
         <span class="dot">${esc(n.source)}</span>
@@ -164,7 +168,7 @@ async function openDetail(id) {
   document.getElementById("detail").innerHTML = `
     <h2>${esc(n.title)}</h2>
     <div class="src">
-      来源：${esc(n.source)} · ${esc(n.city || "广东省")} · 发布于 ${(n.publish_time || "").slice(0, 10)}
+      来源：${esc(n.source)} · ${esc(n.city || "广东省")}${n.district ? " · " + esc(n.district) : ""} · 发布于 ${(n.publish_time || "").slice(0, 10)}
       · <a href="${esc(n.url)}" target="_blank">查看原文 ↗</a>
       <span class="chip type" style="margin-left:4px">${TYPE_LABEL[n.content_type] || n.content_type}</span>
     </div>
@@ -199,11 +203,21 @@ function closeDialog() { document.getElementById("mask").classList.remove("open"
 document.addEventListener("keydown", e => { if (e.key === "Escape") closeDialog(); });
 
 function resetFilters() {
-  ["f-city","f-type","f-tag","f-start","f-end","f-q"].forEach(id => document.getElementById(id).value = "");
+  ["f-city","f-district","f-type","f-tag","f-start","f-end","f-q"].forEach(id => document.getElementById(id).value = "");
+  syncDistrict();
   load(1);
 }
+/* 区级筛选只在广州（或未选城市）下有意义，选其它地市时禁用并清空 */
+function syncDistrict() {
+  const city = document.getElementById("f-city").value;
+  const d = document.getElementById("f-district");
+  const enabled = !city || city === "广州市";
+  d.disabled = !enabled;
+  if (!enabled) d.value = "";
+}
+document.getElementById("f-city").addEventListener("change", syncDistrict);
 document.getElementById("f-q").addEventListener("keydown", e => { if (e.key === "Enter") load(1); });
-loadMeta().then(() => load(1));
+loadMeta().then(() => { syncDistrict(); load(1); });
 </script>
 </body>
 </html>

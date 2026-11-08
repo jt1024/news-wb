@@ -51,6 +51,14 @@ BREADCRUMB_RE = re.compile(r"^(?:首页|要闻动态|政务动态|搜索|>$|>\s*
 # 孤立日期/时间行、孤立括号残留（发布时间已单独存字段，正文里无需保留）
 DATE_LINE_RE = re.compile(r"^(?:】|\[|\]|20\d{2}[-/年.]\d{1,2}[-/月.]\d{1,2}日?(\s+\d{1,2}:\d{2}(:\d{2})?)?\s*)$")
 
+# 页脚特征：启发式兜底偶尔会选中整页的版权/联系方式容器（尤其纯附件页），
+# 短文本里同时出现两个以上页脚标志，就认定没有正文，交给上层抑制。
+FOOTER_RE = re.compile(r"版权所有|ICP备|网站标识码|主办单位|主办[:：]|承办[:：]|联系电话[:：]|粤公网安")
+
+
+def _is_footer_only(raw: str) -> bool:
+    return len(raw.strip()) < 400 and len(FOOTER_RE.findall(raw)) >= 2
+
 
 def _clean_text_lines(lines: list[str]) -> list[str]:
     """剔除噪音行：版式元素、面包屑、孤立标点与日期行。"""
@@ -285,7 +293,9 @@ class Fetcher:
         sel = self.selectors.get("item") or "a"
         seen, items = set(), []
         for a in soup.select(sel):
-            href = a.get("href", "")
+            # 部分站点（如增城）链接写成 href=" http://..."，前导空格会让
+            # urljoin 产出带空格的 URL，后续 httpx 报 UnsupportedProtocol。
+            href = (a.get("href") or "").strip()
             title = _clean_title(a.get("title") or a.get_text())
             if not href or not title or len(title) < 8:
                 continue
@@ -302,9 +312,25 @@ class Fetcher:
             if url in seen:
                 continue
             seen.add(url)
-            # 日期：优先条目行内找，找不到则在前文 300 字符内找
-            ctx = str(a.parent) if a.parent else str(a)
-            pub = _parse_date(re.sub(r"<[^>]+>", " ", ctx)) or _parse_date(str(a))
+            # 日期：从链接的直接父容器逐层向上找（最多 3 层）。
+            # 白云区把标题放 div.tit、日期放 div.box，只看父层会漏掉日期；
+            # 逐层由内向外、并截断到 600 字符，避免误取到相邻条目的日期。
+            pub, node = None, a.parent
+            for _ in range(3):
+                if node is None:
+                    break
+                block = str(node)
+                # 整块里出现多条新闻链接 = 已经到了列表容器，再往上找只会
+                # 把首条日期错配给所有条目，直接停。
+                if block.count("content/post_") > 1:
+                    break
+                ctx = re.sub(r"<[^>]+>", " ", block)[:600]
+                pub = _parse_date(ctx)
+                if pub:
+                    break
+                node = node.parent
+            if pub is None:
+                pub = _parse_date(str(a))
             items.append(ListItem(url=url, title=title, publish_time=pub))
         return items
 
@@ -326,6 +352,7 @@ class Fetcher:
             "#zoom", "#zoombox", "#ivs_content", ".TRS_Editor",
             "#zoomcon", ".zw",  # 南方新闻网建站平台（广东多数地市通用）
             ".content_article", ".article-content", ".article", ".main-txt",
+            ".conNews", ".detailCon", ".tyxl_nr_con", ".UCAP-CONTENT",
             "#content", ".content", "article",
         ):
             if not sel:
@@ -338,7 +365,10 @@ class Fetcher:
             node = self._heuristic_main_block(soup)
         if node is None:
             return Detail()
-        text = "\n".join(_clean_text_lines(node.get_text("\n").splitlines()))
+        raw = node.get_text("\n")
+        if _is_footer_only(raw):
+            return Detail()
+        text = "\n".join(_clean_text_lines(raw.splitlines()))
         return Detail(content_text=text, content_html=str(node))
 
     @staticmethod

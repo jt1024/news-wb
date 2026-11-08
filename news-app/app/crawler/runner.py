@@ -71,9 +71,15 @@ def is_duplicate(db: Session, source: Source, url_h: str, t_hash: str, title: st
     # 层 1：URL 精确匹配
     if db.execute(select(News.id).where(News.url_hash == url_h).limit(1)).scalar():
         return True
-    # 层 2：标题精确指纹（限定同地域，避免不同城市同名标题误判）/ 同源相似度（近 60 天）
+    # 层 2：标题精确指纹（限定同地域，避免不同城市/不同区同名标题误判）/ 同源相似度（近 60 天）
+    # 广州 11 个区同属「广州市」，必须再按区收窄，否则跨区同名通稿会被当成重复丢掉。
+    district = getattr(source, "region_district", "") or ""
     if db.execute(
-        select(News.id).where(News.title_hash == t_hash, News.region_city == source.region_city).limit(1)
+        select(News.id).where(
+            News.title_hash == t_hash,
+            News.region_city == source.region_city,
+            News.region_district == district,
+        ).limit(1)
     ).scalar():
         return True
     since = datetime.now() - timedelta(days=60)
@@ -147,6 +153,7 @@ async def fetch_source(source: Source, db: Session, max_items: int = 50) -> Fetc
                 source_id=source.id,
                 region_province=source.region_province,
                 region_city=source.region_city,
+                region_district=getattr(source, "region_district", "") or "",
                 level=source.level,
                 publish_time=item.publish_time,
             )

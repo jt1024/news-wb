@@ -88,14 +88,25 @@ def collect(period: str, today: date | None = None) -> dict:
         pending = one("SELECT COUNT(*) FROM news WHERE status!='interpreted'")
         ai_err = one("SELECT COUNT(*) FROM news WHERE ai_error IS NOT NULL AND ai_error!=''")
         all_total = one("SELECT COUNT(*) FROM news")
+        # 报告副标题的源规模从库里现查，避免每次扩源都要回来改硬编码数字
+        source_count = one("SELECT COUNT(*) FROM sources WHERE enabled=1")
+        source_cities = one("SELECT COUNT(DISTINCT region_city) FROM sources "
+                            "WHERE enabled=1 AND region_city!=''")
+        source_districts = one("SELECT COUNT(DISTINCT region_district) FROM sources "
+                               "WHERE enabled=1 AND region_district!=''")
     finally:
         conn.close()
+
+    scope = f"{source_count} 源 / {source_cities} 地市"
+    if source_districts:
+        scope += f" / {source_districts} 区"
 
     days = (end - start).days
     return {
         "period": period,
         "label": label,
         "stem": stem,
+        "scope": scope,
         "start": s, "end": (end - timedelta(days=1)).isoformat(),
         "total": total, "prev_total": prev_total,
         "delta": total - prev_total,
@@ -144,7 +155,7 @@ def build_markdown(d: dict, summary: str) -> str:
         f"# 广东政务新闻{'周报' if d['period'] == 'weekly' else '月报'} · {d['label']}",
         "",
         f"**发布量**：{d['total']} 篇（上期 {d['prev_total']}，{'↑' if d['delta'] >= 0 else '↓'}{abs(d['delta'])}）｜日均 {d['daily_avg']} 篇",
-        f"**覆盖**：{d['city_count']} 个活跃地市｜AI 解读 {d['interpreted']}/{d['total']} 篇",
+        f"**覆盖**：{d['city_count']} 个活跃地市｜{d.get('scope', '')}｜AI 解读 {d['interpreted']}/{d['total']} 篇",
         f"**抓取**：{d['rounds']} 轮{'（该周期早于平台上线）' if not d['rounds'] else ''}｜新增 {d['inserted']} 篇｜源级失败 {d['failed']} 次",
         "",
     ]
@@ -231,7 +242,7 @@ li a:hover{{color:var(--brand)}} .meta{{font-size:11.5px;color:var(--text3);disp
 footer{{color:var(--text3);font-size:11.5px;text-align:center;margin-top:22px}}
 @media(max-width:600px){{.kpis{{grid-template-columns:repeat(2,1fr)}}.wrap{{padding:16px 12px 40px}}}}
 </style></head><body><div class="wrap">
-<header><h1>广东政务新闻{name}</h1><div class="sub">{e(d['label'])} · 27 源 / 21 地市 · 生成于 {e(d['generated_at'][:16].replace('T',' '))}</div></header>
+<header><h1>广东政务新闻{name}</h1><div class="sub">{e(d['label'])} · {e(d.get('scope', ''))} · 生成于 {e(d['generated_at'][:16].replace('T',' '))}</div></header>
 <div class="kpis">{kpi_html}</div>
 {summary_html}
 <div class="card"><h2>热门主题</h2>{bars or '<p class="muted">本期无标签数据</p>'}</div>

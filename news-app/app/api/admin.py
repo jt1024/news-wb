@@ -114,7 +114,8 @@ def scheduler_status():
 @router.get("/sources")
 def list_sources(db=Depends(get_db)):
     sources = db.execute(select(Source)).scalars().all()
-    return [{"id": s.id, "name": s.name, "city": s.region_city, "level": s.level,
+    return [{"id": s.id, "name": s.name, "city": s.region_city,
+             "district": s.region_district or "", "level": s.level,
              "list_url": s.list_url, "fetch_type": s.fetch_type, "enabled": s.enabled,
              "last_fetch_at": s.last_fetch_at.isoformat() if s.last_fetch_at else None}
             for s in sources]
@@ -129,6 +130,7 @@ def create_source(body: dict, db=Depends(get_db)):
     s = Source(
         name=body["name"],
         region_city=body.get("city", ""),
+        region_district=body.get("district", "") or "",
         level=body.get("level", "city"),
         base_url=body.get("base_url", ""),
         list_url=body["list_url"],
@@ -175,7 +177,7 @@ def review_queue(db=Depends(get_db)):
     ).scalars().all()
     return [{"id": n.id, "title": n.title, "summary": n.ai_summary,
              "analysis": n.ai_analysis, "confidence": n.ai_confidence,
-             "city": n.region_city} for n in rows]
+             "city": n.region_city, "district": n.region_district or ""} for n in rows]
 
 
 @router.post("/review/{news_id}")

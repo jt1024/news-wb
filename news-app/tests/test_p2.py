@@ -127,6 +127,10 @@ class PeriodReportTests(unittest.TestCase):
             CREATE TABLE news_tags (news_id INTEGER, tag_id INTEGER);
             CREATE TABLE fetch_logs (id INTEGER PRIMARY KEY, started_at TEXT,
                 inserted INTEGER, status TEXT);
+            CREATE TABLE sources (id INTEGER PRIMARY KEY, name TEXT, region_city TEXT,
+                region_district TEXT, enabled INTEGER);
+            INSERT INTO sources VALUES (1,'省级','','',1),(2,'广州市','广州市','',1),
+                (3,'天河区','广州市','天河区',1);
             INSERT INTO tags VALUES (1,'产业');
             INSERT INTO news VALUES (1,'印发产业政策','广州市','2026-10-15 09:00:00',
                 'https://example.com/1','policy','interpreted','');
@@ -154,6 +158,7 @@ class PeriodReportTests(unittest.TestCase):
         self.assertEqual(d["topics"][0]["tag"], "产业")
         self.assertEqual(d["pending"], 0)
         self.assertEqual(d["all_total"], 2)
+        self.assertEqual(d["scope"], "3 源 / 1 地市 / 1 区")
 
     def test_generate_degrades_without_ai(self):
         with patch.object(period_report, "ai_summary", return_value=""):

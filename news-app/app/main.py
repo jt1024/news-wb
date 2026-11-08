@@ -60,10 +60,17 @@ def _check_auth_security():
 
 
 def _migrate(engine):
-    """轻量迁移：为旧表补充新增列。"""
+    """轻量迁移：为旧表补充新增列。create_all 只建新表，不给旧表加列。"""
     from sqlalchemy import text
 
     with engine.connect() as conn:
+        for table in ("news", "sources"):
+            cols = [r[1] for r in conn.execute(text(f"PRAGMA table_info({table})"))]
+            if "region_district" not in cols:
+                conn.execute(text(
+                    f"ALTER TABLE {table} ADD COLUMN region_district VARCHAR(20) DEFAULT ''"
+                ))
+                conn.commit()
         cols = [r[1] for r in conn.execute(text("PRAGMA table_info(news)"))]
         if "ai_error" not in cols:
             conn.execute(text("ALTER TABLE news ADD COLUMN ai_error TEXT DEFAULT ''"))

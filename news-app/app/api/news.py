@@ -18,6 +18,7 @@ def _brief(n: News) -> dict:
         "title": n.title,
         "summary": n.ai_summary or (n.content_text[:120] if n.content_text else ""),
         "city": n.region_city,
+        "district": n.region_district or "",
         "source": n.source.name if n.source else "",
         "content_type": n.content_type,
         "tags": [t.name for t in n.tags],
@@ -31,6 +32,7 @@ def _brief(n: News) -> dict:
 @router.get("/api/news")
 def list_news(
     city: str = "",
+    district: str = "",
     type_: str = Query("", alias="type"),
     tag: str = "",
     q: str = "",
@@ -43,6 +45,8 @@ def list_news(
     stmt = select(News).options(joinedload(News.source), joinedload(News.tags))
     if city:
         stmt = stmt.where(News.region_city == city)
+    if district:
+        stmt = stmt.where(News.region_district == district)
     if type_:
         stmt = stmt.where(News.content_type == type_)
     if tag:
@@ -100,10 +104,13 @@ async def interpret_single(news_id: int, db: Session = Depends(get_db)):
 @router.get("/api/meta")
 def meta(db: Session = Depends(get_db)):
     cities = [r[0] for r in db.execute(select(News.region_city).distinct()).all() if r[0]]
+    districts = [r[0] for r in db.execute(select(News.region_district).distinct()).all() if r[0]]
     tags = [t.name for t in db.execute(select(Tag)).scalars()]
-    sources = [{"id": s.id, "name": s.name, "city": s.region_city, "enabled": s.enabled}
+    sources = [{"id": s.id, "name": s.name, "city": s.region_city,
+                "district": s.region_district or "", "level": s.level, "enabled": s.enabled}
                for s in db.execute(select(Source)).scalars()]
-    return {"cities": sorted(cities), "tags": tags, "sources": sources,
+    return {"cities": sorted(cities), "districts": sorted(districts),
+            "tags": tags, "sources": sources,
             "types": [
                 {"key": "news", "label": "新闻动态"},
                 {"key": "notice", "label": "通知公告"},
