@@ -62,7 +62,8 @@ def rounds(conn):
 def load_round(conn, key, lo, hi):
     logs = conn.execute(
         """SELECT f.id, f.started_at, f.finished_at, f.status, f.found, f.inserted,
-                  f.duplicated, f.error, s.name, s.region_city
+                  f.duplicated, f.error, s.name,
+                  COALESCE(NULLIF(s.region_org,''), NULLIF(s.region_city,''), '广东省')
            FROM fetch_logs f LEFT JOIN sources s ON s.id = f.source_id
            WHERE f.started_at >= ? AND f.started_at <= ? ORDER BY f.id""",
         (lo, hi),
@@ -82,7 +83,9 @@ def load_round(conn, key, lo, hi):
     from datetime import timedelta
 
     news = conn.execute(
-        """SELECT n.title, n.region_city, n.publish_time, n.status, n.ai_error, s.name
+        """SELECT n.title,
+                  COALESCE(NULLIF(n.region_org,''), NULLIF(n.region_city,''), '广东省'),
+                  n.publish_time, n.status, n.ai_error, s.name
            FROM news n LEFT JOIN sources s ON s.id = n.source_id
            WHERE n.fetch_time >= ? AND n.fetch_time <= ?
            ORDER BY n.publish_time DESC, n.id""",
@@ -179,7 +182,7 @@ def build_markdown(d, prev_inserted, trend):
     failed = [r for r in d["logs"] if r[3] != "ok"]
     for r in failed:
         lines.append(f"- **{e(r[8])} 源级失败**：{e(r[7] or '未知错误')} → 需关注")
-    lines += ["", "## 四、源级明细", "", "| 源 | 地市 | 扫描 | 新增 | 重复 | 状态 | 备注 |", "| --- | --- | --- | --- | --- | --- | --- |"]
+    lines += ["", "## 四、源级明细", "", "| 源 | 地域 / 机构 | 扫描 | 新增 | 重复 | 状态 | 备注 |", "| --- | --- | --- | --- | --- | --- | --- |"]
     for r in d["logs"]:
         lines.append(f"| {e(r[8])} | {e(r[9])} | {r[4] or 0} | {r[5] or 0} | {r[6] or 0} | {e(r[3])} | {e(r[7] or '')} |")
     lines += ["", "## 五、库状态与下次执行", "",
@@ -256,7 +259,7 @@ def build_html(d, prev_inserted, trend):
             f"<td>{e(src or '—')}</td><td><span class=\"tag {'ok' if st == 'interpreted' else 'warn'}\">{e(st)}</span></td></tr>"
             for t, city, pub, st, err, src in d["news"]
         )
-        news_html = (f'<table><thead><tr><th>地市</th><th>标题</th><th>发布日期</th>'
+        news_html = (f'<table><thead><tr><th>地域 / 机构</th><th>标题</th><th>发布日期</th>'
                      f'<th>来源栏目</th><th>解读</th></tr></thead><tbody>{rows}</tbody></table>')
     else:
         news_html = '<div class="clean">本轮无新增：各源列表内容均已入库，属于正常情况。</div>'
@@ -312,7 +315,7 @@ def build_html(d, prev_inserted, trend):
 <div class="sec"><h2>二、本轮新增内容</h2>{news_html}</div>
 <div class="sec"><h2>三、异常与处置</h2>{warn_html}</div>
 <div class="sec"><h2>四、源级明细（{a['sources']} 个源）</h2>
-<table><thead><tr><th>源</th><th>地市</th><th>扫描</th><th>新增</th><th>重复</th><th>状态</th><th>备注</th></tr></thead>
+<table><thead><tr><th>源</th><th>地域 / 机构</th><th>扫描</th><th>新增</th><th>重复</th><th>状态</th><th>备注</th></tr></thead>
 <tbody>{log_rows}</tbody></table></div>
 <div class="sec"><h2>五、近几轮新增趋势</h2><div class="trend">{bars}</div>
 <div style="font-size:12px;color:#888780;margin-top:10px">深色为当前轮次；建库初期的批量补齐会造成峰值，稳态后看相对变化即可。</div></div>

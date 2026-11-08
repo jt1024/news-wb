@@ -21,14 +21,17 @@ def _fixture_db():
     conn = sqlite3.connect(":memory:")
     conn.executescript(
         """
-        CREATE TABLE sources (id INTEGER PRIMARY KEY, name TEXT, region_city TEXT);
+        CREATE TABLE sources (id INTEGER PRIMARY KEY, name TEXT, region_city TEXT,
+            region_org TEXT DEFAULT '');
         CREATE TABLE fetch_logs (
             id INTEGER PRIMARY KEY, source_id INTEGER, started_at TEXT, finished_at TEXT,
             status TEXT, found INTEGER, inserted INTEGER, duplicated INTEGER, error TEXT);
         CREATE TABLE news (
             id INTEGER PRIMARY KEY, title TEXT, region_city TEXT, publish_time TEXT,
-            status TEXT, ai_error TEXT, source_id INTEGER, fetch_time TEXT);
-        INSERT INTO sources VALUES (1, '测试源甲', '甲市'), (2, '测试源乙', '乙市');
+            status TEXT, ai_error TEXT, source_id INTEGER, fetch_time TEXT,
+            region_org TEXT DEFAULT '');
+        INSERT INTO sources (id,name,region_city) VALUES
+          (1, '测试源甲', '甲市'), (2, '测试源乙', '乙市');
         INSERT INTO fetch_logs VALUES
           (1, 1, '2026-11-07 12:00:10.000000', '2026-11-07 12:00:50.000000',
            'ok', 10, 2, 8, ''),
@@ -36,13 +39,15 @@ def _fixture_db():
            'ok', 8, 1, 7, '1 篇空正文已跳过'),
           (3, 1, '2026-11-07 21:00:00.000000', '2026-11-07 21:00:40.000000',
            'ok', 5, 1, 4, '');
-        INSERT INTO news VALUES
+        INSERT INTO news (id,title,region_city,publish_time,status,ai_error,source_id,fetch_time)
+          VALUES
           (1, '甲市召开经济工作会议', '甲市', '2026-11-07 09:00:00',
            'interpreted', '', 1, '2026-11-07 12:00:30.000000'),
           (2, '乙市发布产业扶持政策', '乙市', '2026-11-07 10:00:00',
-           'interpreted', '', 2, '2026-11-07 12:00:35.000000'),
-          (3, '丙市开展安全生产检查', '丙市', '2026-11-07 18:00:00',
-           'interpreted', '', 1, '2026-11-07 21:00:20.000000');
+           'interpreted', '', 2, '2026-11-07 12:00:35.000000');
+        INSERT INTO news (id,title,region_city,publish_time,status,ai_error,source_id,fetch_time,region_org)
+          VALUES (3, '国家发展改革委发布规划解读', '', '2026-11-07 18:00:00',
+           'interpreted', '', 1, '2026-11-07 21:00:20.000000', '国家发展改革委');
         """
     )
     return conn
@@ -66,6 +71,8 @@ class RoundAggregationTests(unittest.TestCase):
         self.assertEqual((a["found"], a["inserted"], a["duplicated"]), (5, 1, 4))
         self.assertEqual(d["secs"], 40)
         self.assertEqual(len(d["news"]), 1)
+        # 国家级新闻 city 为空，报告里应显示机构名而不是「—」或「广东省」
+        self.assertEqual(d["news"][0][1], "国家发展改革委")
 
     def test_news_window_uses_sql_datetime_format(self):
         """回归：ISO 的 T 分隔符曾导致本轮新增永远查不到。"""
