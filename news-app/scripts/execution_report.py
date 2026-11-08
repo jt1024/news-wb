@@ -90,7 +90,9 @@ def load_round(conn, key, lo, hi):
          (hi_dt + timedelta(minutes=2)).strftime("%Y-%m-%d %H:%M:%S.%f")),
     ).fetchall()
     total = conn.execute("SELECT COUNT(*) FROM news").fetchone()[0]
-    pending = conn.execute("SELECT COUNT(*) FROM news WHERE status!='interpreted'").fetchone()[0]
+    # 只统计真正排队等解读的 fetched；模型明确拒答已转终态 failed，
+    # 不能再算成「待解读」，否则报告每轮都误报有积压。
+    pending = conn.execute("SELECT COUNT(*) FROM news WHERE status='fetched'").fetchone()[0]
     ai_err = conn.execute(
         "SELECT COUNT(*) FROM news WHERE ai_error IS NOT NULL AND ai_error!=''"
     ).fetchone()[0]

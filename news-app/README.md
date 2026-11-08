@@ -35,7 +35,7 @@ runtime/python313/bin/python3 -m venv .venv   # 用项目自带解释器，或�
 .venv/bin/pip install -r requirements.txt
 cp .env.example .env                          # 必填：ADMIN_PASSWORD、AUTH_SECRET、AI_API_KEY、NOTIFY_*
 chmod 600 .env
-.venv/bin/python scripts/run_tests.py         # 73 个单测，0.2 秒
+.venv/bin/python scripts/run_tests.py         # 75 个单测，0.2 秒
 .venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8300
 ```
 
@@ -99,6 +99,7 @@ chmod 600 .env
 - **WAF 通行**：梅州站返回 521 + 混淆 JS 挑战，`app/crawler/waf.py` 用 quickjs 在 Python 内执行挑战脚本算出 `https_ydclearance` cookie，按域名缓存复用、过期自动重解；curl 兜底链路同样携带。其他站点挂同款 WAF 可直接复用。
 - **列表噪音治理**：只保留与源站同主机/子域的详情链接（历史入库文章全部与源站同主机，过滤安全），并排除栏目首页；标题统一剥 HTML 标签与实体。
 - **无正文豁免**：纯图片海报页、视频页、404 失效链接不入库，但登记到 `skipped_urls` 表抑制 30 天，避免每轮重复下载又重复报一条异常；到期自动重试。
+- **模型拒答终态化**：AI 返回 422 等确定性 4xx（多为内容审核拒答）时，重试无意义，直接把该篇 `status` 置为 `failed` 并保留原文与错误原因，`run_interpret` 不再反复捞取；执行报告的「待解读」只统计 `fetched`，不会每轮误报积压。需重试时把 `status` 改回 `fetched` 即可。
 - **定时**：APScheduler 单 cron 任务多时刻触发，`misfire_grace_time=3600, coalesce=True`（1 小时内可补跑，多次错过只补一次）。手动触发走后台按钮（异步任务 + 实时进度）。
 - **源管理**：`app/crawler/sources.py` 种子 + 后台「新增源」表单，加源通常无需改代码。
 - **站点特例**：深圳站 TLS 国密握手失败时自动回退 curl；珠海列表为 JS 渲染，改走 `postmeta` JSON 接口。
@@ -196,7 +197,7 @@ P2 深化（`app/trends_extra.py`）：
 # 或：.venv/bin/python -m unittest discover -s tests -t . -v
 ```
 
-标准库 `unittest`，73 个用例、约 0.2 秒，覆盖标题清洗、同站过滤、列表解析、三层去重（真实 SQL）、报告轮次聚合、cron 解析、飞书签名与推送降级、认证密钥隔离、无正文豁免生命周期，以及 P2 的政策阶段识别、政策链与地市矩阵（独立临时库）、周期窗口与 AI 降级、固定链接产出、飞书卡片按钮链接。
+标准库 `unittest`，75 个用例、约 0.2 秒，覆盖标题清洗、同站过滤、列表解析、三层去重（真实 SQL）、报告轮次聚合、cron 解析、飞书签名与推送降级、认证密钥隔离、无正文豁免生命周期，以及 P2 的政策阶段识别、政策链与地市矩阵（独立临时库）、周期窗口与 AI 降级、固定链接产出、飞书卡片按钮链接。
 
 `tests/__init__.py` 会把 `DATABASE_URL` 强制指向临时库，**单测绝不连接或修改生产库**。
 

@@ -133,7 +133,8 @@ class NotifierTests(unittest.TestCase):
         self.assertIn("【注意】", title2)
         self.assertIn("待解读 5", title2)
         self.assertIn("需要关注", md2)
-        self.assertIn("额度恢复后下一轮自动补解读", md2)
+        self.assertIn("待解读部分下轮自动补", md2)
+        self.assertIn("模型明确拒答的已跳过", md2)
 
     def test_dispatch_off_skips(self):
         with patch.dict(os.environ, {"NOTIFY_CHANNEL": "off"}):

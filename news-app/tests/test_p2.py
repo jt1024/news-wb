@@ -226,5 +226,24 @@ class NotifierLinkTests(unittest.TestCase):
         self.assertIn("待解读 5", md)
 
 
+class PermanentAIFailureTests(unittest.TestCase):
+    """模型侧确定性拒答必须转终态，否则每轮定时任务都会空转重试。"""
+
+    def test_422_is_permanent(self):
+        from app.ai.pipeline import is_permanent_ai_failure
+
+        self.assertTrue(is_permanent_ai_failure(
+            "Client error '422 Unprocessable Entity' for url 'https://api.minimax.chat/'"))
+        self.assertTrue(is_permanent_ai_failure("HTTP 403 Forbidden"))
+
+    def test_quota_ratelimit_and_network_are_retryable(self):
+        from app.ai.pipeline import is_permanent_ai_failure
+
+        for err in ("AI 402：额度不足", "rate limited",
+                    "Client error '429 Too Many Requests'", "HTTP 402",
+                    "ConnectTimeout", "Server error '500 Internal Server Error'"):
+            self.assertFalse(is_permanent_ai_failure(err), err)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -36,6 +36,15 @@ POLICY_KEYWORDS = re.compile(
     r"(政策|意见|通知|公告|办法|条例|规定|细则|方案|规划|措施|纲要|征求意见|印发|实施细则|管理办法|行动计划|实施方案|若干措施|白皮书)"
 )
 
+# 模型侧明确拒答（如 422 内容审核）属于确定性失败：重试多少次结果都一样。
+# 若仍留在 status=fetched，每轮定时任务都会把这批文章重新捞出来，
+# 白白耗掉配额和时间，还会让「本轮解读」永远跑不完。429/402 单独处理，不在此列。
+PERMANENT_AI_ERROR_RE = re.compile(r"Client error '4(?!02|29)\d\d|HTTP 4(?!02|29)\d\d")
+
+
+def is_permanent_ai_failure(err: str) -> bool:
+    return bool(PERMANENT_AI_ERROR_RE.search(err or ""))
+
 
 def is_policy_like(news: News) -> bool:
     """标题/URL 预判是否政策文件类，决定用强模型还是轻量模型。"""
@@ -112,6 +121,11 @@ def interpret_one(db: Session, news: News, retries: int | None = None) -> bool:
         _apply_result(db, news, data, meta.get("model") or model)
         return True
     news.ai_error = last_err
+    if is_permanent_ai_failure(last_err):
+        # 标记为终态，run_interpret 的 status=fetched 查询不再捞它；
+        # 需要重试时手动把 status 改回 fetched 即可（原文与抓取结果都保留）。
+        news.status = "failed"
+        log.warning("interpret #%s permanently rejected by model, marked failed", news.id)
     return False
 
 

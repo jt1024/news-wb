@@ -86,8 +86,8 @@ def build_message(d: dict, html_name: str, public_url: str = "") -> tuple[str, s
         lines.append("**需要关注**")
         if pending or ai_err:
             lines.append(
-                f"- 待解读 {pending} 篇 / AI 错误 {ai_err} 篇：新闻已入库不会丢失，"
-                "多为 AI 额度耗尽；额度恢复后下一轮自动补解读"
+                f"- 待解读 {pending} 篇 / 解读异常 {ai_err} 篇：新闻均已入库不会丢失；"
+                "待解读部分下轮自动补，模型明确拒答的已跳过、不再重试"
             )
         if a["failed"]:
             lines.append(f"- {a['failed']} 个源级失败，下轮自动重试")
