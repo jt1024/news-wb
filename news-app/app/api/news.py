@@ -104,7 +104,8 @@ async def interpret_single(news_id: int, db: Session = Depends(get_db)):
 @router.get("/api/meta")
 def meta(db: Session = Depends(get_db)):
     cities = [r[0] for r in db.execute(select(News.region_city).distinct()).all() if r[0]]
-    districts = [r[0] for r in db.execute(select(News.region_district).distinct()).all() if r[0]]
+    # 从源配置取而非新闻表：新接入的区还没抓到文章时，筛选下拉也要有选项
+    districts = [r[0] for r in db.execute(select(Source.region_district).distinct()).all() if r[0]]
     tags = [t.name for t in db.execute(select(Tag)).scalars()]
     sources = [{"id": s.id, "name": s.name, "city": s.region_city,
                 "district": s.region_district or "", "level": s.level, "enabled": s.enabled}
