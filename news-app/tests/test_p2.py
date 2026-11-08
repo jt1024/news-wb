@@ -122,20 +122,27 @@ class PeriodReportTests(unittest.TestCase):
         conn = sqlite3.connect(self.db_path)
         conn.executescript("""
             CREATE TABLE news (id INTEGER PRIMARY KEY, title TEXT, region_city TEXT,
-                publish_time TEXT, url TEXT, content_type TEXT, status TEXT, ai_error TEXT);
+                publish_time TEXT, url TEXT, content_type TEXT, status TEXT, ai_error TEXT,
+                level TEXT DEFAULT 'city', region_org TEXT DEFAULT '');
             CREATE TABLE tags (id INTEGER PRIMARY KEY, name TEXT);
             CREATE TABLE news_tags (news_id INTEGER, tag_id INTEGER);
             CREATE TABLE fetch_logs (id INTEGER PRIMARY KEY, started_at TEXT,
                 inserted INTEGER, status TEXT);
             CREATE TABLE sources (id INTEGER PRIMARY KEY, name TEXT, region_city TEXT,
-                region_district TEXT, enabled INTEGER);
-            INSERT INTO sources VALUES (1,'省级','','',1),(2,'广州市','广州市','',1),
-                (3,'天河区','广州市','天河区',1);
+                region_district TEXT, enabled INTEGER, region_org TEXT DEFAULT '');
+            INSERT INTO sources VALUES (1,'省级','','',1,''),(2,'广州市','广州市','',1,''),
+                (3,'天河区','广州市','天河区',1,''),
+                (4,'国家发展改革委','','',1,'国家发展改革委');
             INSERT INTO tags VALUES (1,'产业');
-            INSERT INTO news VALUES (1,'印发产业政策','广州市','2026-10-15 09:00:00',
+            INSERT INTO news (id,title,region_city,publish_time,url,content_type,status,ai_error)
+                VALUES (1,'印发产业政策','广州市','2026-10-15 09:00:00',
                 'https://example.com/1','policy','interpreted','');
-            INSERT INTO news VALUES (2,'贯彻落实会议精神','佛山市','2026-10-16 09:00:00',
+            INSERT INTO news (id,title,region_city,publish_time,url,content_type,status,ai_error)
+                VALUES (2,'贯彻落实会议精神','佛山市','2026-10-16 09:00:00',
                 'https://example.com/2','news','interpreted','');
+            INSERT INTO news (id,title,region_city,publish_time,url,content_type,status,ai_error,level,region_org)
+                VALUES (3,'国家发展改革委发布规划解读','','2026-10-17 09:00:00',
+                'https://example.com/3','policy','interpreted','','national','国家发展改革委');
             INSERT INTO news_tags VALUES (1,1),(2,1);
             INSERT INTO fetch_logs VALUES (1,'2026-10-15 12:00:00',2,'ok');
         """)
@@ -152,13 +159,15 @@ class PeriodReportTests(unittest.TestCase):
 
     def test_collect(self):
         d = period_report.collect("monthly", date(2026, 11, 7))
-        self.assertEqual(d["total"], 2)
+        self.assertEqual(d["total"], 3)
         self.assertEqual(d["city_count"], 2)
+        self.assertEqual(d["national_count"], 1)
         self.assertEqual(d["rounds"], 1)
         self.assertEqual(d["topics"][0]["tag"], "产业")
         self.assertEqual(d["pending"], 0)
-        self.assertEqual(d["all_total"], 2)
-        self.assertEqual(d["scope"], "3 源 / 1 地市 / 1 区")
+        self.assertEqual(d["all_total"], 3)
+        self.assertEqual(d["scope"], "4 源 / 1 地市 / 1 区 / 1 部委")
+        self.assertEqual(d["picks"][0]["city"], "国家发展改革委")
 
     def test_generate_degrades_without_ai(self):
         with patch.object(period_report, "ai_summary", return_value=""):

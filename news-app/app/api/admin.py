@@ -115,7 +115,7 @@ def scheduler_status():
 def list_sources(db=Depends(get_db)):
     sources = db.execute(select(Source)).scalars().all()
     return [{"id": s.id, "name": s.name, "city": s.region_city,
-             "district": s.region_district or "", "level": s.level,
+             "district": s.region_district or "", "org": s.region_org or "", "level": s.level,
              "list_url": s.list_url, "fetch_type": s.fetch_type, "enabled": s.enabled,
              "last_fetch_at": s.last_fetch_at.isoformat() if s.last_fetch_at else None}
             for s in sources]
@@ -131,6 +131,8 @@ def create_source(body: dict, db=Depends(get_db)):
         name=body["name"],
         region_city=body.get("city", ""),
         region_district=body.get("district", "") or "",
+        region_province="全国" if body.get("level") == "national" else "广东省",
+        region_org=body.get("org", "") or "",
         level=body.get("level", "city"),
         base_url=body.get("base_url", ""),
         list_url=body["list_url"],

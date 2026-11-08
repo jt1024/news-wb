@@ -27,6 +27,7 @@ class ListItem:
 class Detail:
     content_text: str = ""
     content_html: str = ""
+    publish_time: datetime | None = None  # 列表页缺日期时从详情页 meta 兜底
 
 
 DATE_PATTERNS = [
@@ -35,6 +36,19 @@ DATE_PATTERNS = [
     r"(20\d{2})/(\d{1,2})/(\d{1,2})",
     r"(20\d{2})\.(\d{1,2})\.(\d{1,2})",
 ]
+
+# 中央部委列表页常不显示日期，但 URL 里带发布日期：
+#   /20261105/<hash>/c.html（能源局）、/202611/t20261105_123.htm（财政部/农业农村部）
+#   /art/2026/9/23/art_14_123.html（医保局）
+URL_DATE_PATTERNS = [
+    re.compile(r"/(20\d{2})(\d{2})(\d{2})/"),
+    re.compile(r"/t(20\d{2})(\d{2})(\d{2})_"),
+    re.compile(r"/(20\d{2})/(\d{1,2})/(\d{1,2})/art_"),
+]
+
+DETAIL_DATE_META_RE = re.compile(
+    r"pubdate|publishdate|publish_time|published_time|datepublished|docrelpubtime", re.I
+)
 
 # 版式噪音行（详情页头部/尾部的导航与排版元素，整行剔除）
 NOISE_TEXT_RE = re.compile(
@@ -74,6 +88,9 @@ def _clean_text_lines(lines: list[str]) -> list[str]:
             continue
         if not re.search(r"[\u4e00-\u9fff]", s) and len(s) < 6:
             continue
+        # 部分部委正文容器把站点域名单独渲染成一行（科技部 www.most.gov.cn）
+        if re.fullmatch(r"(?:www\.)?[a-z0-9-]+(?:\.[a-z0-9-]+)+(?:\.cn|\.com)?", s, re.I):
+            continue
         # 去掉行内残留的浏览字体标记
         s = re.sub(r"【?浏览字体[:：]?[^】]*】?", "", s).strip()
         if s:
@@ -108,10 +125,22 @@ def _strip_leading_junk(lines: list[str], max_scan: int = 10) -> list[str]:
 
 
 def _clean_title(raw: str) -> str:
-    """清洗列表页标题：剥 HTML 标签（如 <br/>）、解码实体（&quot; 等）、压缩空白。"""
+    """清洗列表页标题：剥 HTML 标签（如 <br/>）、解码实体（&quot; 等）、压缩空白。
+
+    部分部委（交通运输部）把发布日期直接拼在链接文本尾部，标题里会拖一条
+    「2026-11-06」尾巴，剥掉避免污染标题指纹与展示。
+    """
     t = re.sub(r"<[^>]+>", " ", str(raw))
     t = html.unescape(t)
-    return re.sub(r"\s+", " ", t).strip()
+    t = re.sub(r"\s+", " ", t).strip()
+    return re.sub(r"[\s　]*20\d{2}[-/年.]\d{1,2}[-/月.]\d{1,2}日?\s*$", "", t).strip()
+
+
+# 公共后缀：不能作为「父域」把不相干的政务站串成同站
+PUBLIC_SUFFIXES = {
+    "cn", "com", "net", "org", "gov.cn", "com.cn", "org.cn", "net.cn",
+    "ac.cn", "edu.cn", "mil.cn", "gov.hk", "edu.hk",
+}
 
 
 def same_site(url: str, base_url: str) -> bool:
@@ -125,7 +154,14 @@ def same_site(url: str, base_url: str) -> bool:
     b = (urlparse(base_url).hostname or "").lower().removeprefix("www.")
     if not h or not b:
         return True
-    return h == b or h.endswith("." + b) or b.endswith("." + h)
+    if h == b or h.endswith("." + b):
+        return True
+    # b 是 h 的子域时才反向放行。但 gov.cn / com.cn 这类是公共后缀：
+    # 若不拦住，"samr.gov.cn".endswith(".gov.cn") 会让市场监管总局首页把
+    # 中国政府网的通稿当成本部新闻抓进来（所有政务站都同属 .gov.cn）。
+    if h in PUBLIC_SUFFIXES:
+        return False
+    return b.endswith("." + h)
 
 
 def _parse_date(text: str) -> datetime | None:
@@ -137,6 +173,37 @@ def _parse_date(text: str) -> datetime | None:
             except ValueError:
                 continue
     return None
+
+
+def _parse_date_from_url(url: str) -> datetime | None:
+    """从详情页 URL 里抽取精确发布日期（列表页无日期时的第一层兜底）。"""
+    for pat in URL_DATE_PATTERNS:
+        m = pat.search(url)
+        if m:
+            try:
+                return datetime(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+            except ValueError:
+                continue
+    return None
+
+
+def _detail_publish_date(soup: BeautifulSoup, raw_html: str) -> datetime | None:
+    """详情页日期兜底：优先 meta 标签，其次带「发布时间」标签的短文本。
+
+    不从正文里随便抓第一个日期——政策原文常引用历史年份，会错标发布时间。
+    """
+    for m in soup.find_all("meta"):
+        key = m.get("name") or m.get("property") or m.get("itemprop") or ""
+        if DETAIL_DATE_META_RE.search(str(key)):
+            d = _parse_date(str(m.get("content") or ""))
+            if d:
+                return d
+    text = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", raw_html))
+    m = re.search(
+        r"(?:发布时间|发布日期|发表时间|信息来源|来源)\s*[:：]?\s*"
+        r"(20\d{2}[-/年.]\d{1,2}[-/月.]\d{1,2})", text[:20000]
+    )
+    return _parse_date(m.group(1)) if m else None
 
 
 class Fetcher:
@@ -251,7 +318,12 @@ class Fetcher:
         return self._parse_list(html)[:max_items]
 
     def _parse_json_list(self, raw: str) -> list[ListItem]:
-        """解析 JSON 接口列表（兼容珠海 postmeta 格式：articles[].title/url/publish_time）。"""
+        """解析 JSON 接口列表。
+
+        兼容两种格式：
+        - 珠海 postmeta：{"articles": [{"title","url","publish_time": 时间戳}]}
+        - 中国政府网静态列表：顶层数组 [{"TITLE","URL","DOCRELPUBTIME": "2026-11-07"}]
+        """
         import json
 
         try:
@@ -259,18 +331,36 @@ class Fetcher:
         except json.JSONDecodeError:
             log.warning("json list parse failed for %s", self.source.name)
             return []
+        if isinstance(data, list):
+            rows = data
+        elif isinstance(data, dict):
+            rows = (data.get("articles") or data.get("list")
+                    or (data.get("data") or {}).get("articles") or [])
+        else:
+            rows = []
         items = []
-        for a in data.get("articles") or data.get("data", {}).get("articles") or []:
-            title = _clean_title(str(a.get("title", "")))
-            url = self._prefer_https(str(a.get("url") or a.get("linked_url") or "").strip())
+        base = self.source.base_url or self.source.list_url
+        for a in rows:
+            if not isinstance(a, dict):
+                continue
+            title = _clean_title(str(a.get("title") or a.get("TITLE") or ""))
+            url = self._prefer_https(str(
+                a.get("url") or a.get("URL") or a.get("link") or a.get("linked_url") or ""
+            ).strip())
             if not title or not url or len(title) < 8:
                 continue
+            # 政府网 JSON 里混有新华网/央视外链，只保留源站文章
+            if not same_site(url, base):
+                continue
             pub = None
-            ts = a.get("publish_time") or a.get("first_publish_time")
+            ts = (a.get("publish_time") or a.get("DOCRELPUBTIME")
+                  or a.get("pubDate") or a.get("first_publish_time"))
             if isinstance(ts, (int, float)) and ts > 10**12:
                 pub = datetime.fromtimestamp(ts / 1000)
             elif isinstance(ts, (int, float)) and ts > 10**9:
                 pub = datetime.fromtimestamp(ts)
+            elif ts:
+                pub = _parse_date(str(ts))
             items.append(ListItem(url=url, title=title, publish_time=pub))
         return items
 
@@ -302,12 +392,19 @@ class Fetcher:
             url = self._prefer_https(urljoin(self.source.list_url, href))
             if not same_site(url, self.source.base_url or self.source.list_url):
                 continue
-            if not re.search(r"(post_|content/|art/|\.(html|shtml)$)", url):
+            # 中央部委站大量使用 .htm 后缀（财政部 / 农业农村部 / 中国政府网），
+            # 旧规则只认 .html|.shtml，会把整页新闻全部滤掉。
+            if not re.search(r"(post_|content/|art/|\.(html|shtml|htm)$)", url):
                 continue
             # 栏目首页（/index.html、/index_2.html 等）不是新闻详情，
-            # 抓进来只会得到机构名标题 + 空正文，直接排除
-            if (re.search(r"/index(_\d+)?\.(html?|shtml)$", url, re.I)
-                    and not re.search(r"(post_|content/|art/)", url)):
+            # 抓进来只会得到机构名标题 + 空正文，直接排除。
+            # 但人民银行把每篇文章放在独立数字目录里，详情页恰是 /<14位时间戳>/index.html，
+            # 这类带长数字 ID 的路径是文章，必须放行。
+            is_index = re.search(r"/index(_\d+)?\.(html?|shtml|htm)$", url, re.I)
+            has_article_id = re.search(r"/\d{8,}/", url) or re.search(
+                r"(t20\d{6}_\d+|art_[0-9a-f]{16,}|content_\d+)", url, re.I
+            )
+            if is_index and not has_article_id and not re.search(r"(post_|content/|art/)", url):
                 continue
             if url in seen:
                 continue
@@ -330,7 +427,7 @@ class Fetcher:
                     break
                 node = node.parent
             if pub is None:
-                pub = _parse_date(str(a))
+                pub = _parse_date(str(a)) or _parse_date_from_url(url)
             items.append(ListItem(url=url, title=title, publish_time=pub))
         return items
 
@@ -343,6 +440,7 @@ class Fetcher:
 
     def _extract_detail(self, html: str) -> Detail:
         soup = BeautifulSoup(html, "lxml")
+        pub = _detail_publish_date(soup, html)
         for t in soup(["script", "style", "nav", "header", "footer", "iframe", "form"]):
             t.decompose()
 
@@ -364,12 +462,12 @@ class Fetcher:
         if node is None:
             node = self._heuristic_main_block(soup)
         if node is None:
-            return Detail()
+            return Detail(publish_time=pub)
         raw = node.get_text("\n")
         if _is_footer_only(raw):
-            return Detail()
+            return Detail(publish_time=pub)
         text = "\n".join(_clean_text_lines(raw.splitlines()))
-        return Detail(content_text=text, content_html=str(node))
+        return Detail(content_text=text, content_html=str(node), publish_time=pub)
 
     @staticmethod
     def _heuristic_main_block(soup: BeautifulSoup):

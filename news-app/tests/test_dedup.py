@@ -64,20 +64,21 @@ class IsDuplicateTests(unittest.TestCase):
     def tearDown(self):
         self.db.close()
 
-    def _source(self, city="广州市", district=""):
+    def _source(self, city="广州市", district="", level="city"):
         s = Source(name="源-" + uuid4().hex, base_url="https://www.example.gov.cn",
                    list_url="https://www.example.gov.cn/ywdt/index.html",
-                   region_city=city, region_district=district)
+                   region_city=city, region_district=district, level=level)
         self.db.add(s)
         self.db.commit()
         return s
 
-    def _news(self, source, title, url, sim="", city=None, days_ago=0, district=None):
+    def _news(self, source, title, url, sim="", city=None, days_ago=0, district=None, level=None):
         n = News(
             title=title, url=url, url_hash=url_hash(url), title_hash=title_hash(title),
             simhash_hex=sim, source_id=source.id,
             region_city=city or source.region_city,
             region_district=(source.region_district or "") if district is None else district,
+            level=level or source.level,
             publish_time=datetime.now() - timedelta(days=days_ago),
             content_text="正文占位",
         )
@@ -152,6 +153,22 @@ class IsDuplicateTests(unittest.TestCase):
                    "https://www.example.gov.cn/a.html", days_ago=90)
         self.assertFalse(self._dup(s, "关于进一步做好2026年全市政务公开工作的通知呀",
                                    "https://www.example.gov.cn/b.html"))
+
+    def test_layer2_scoped_by_level(self):
+        """国家级与省级的 region_city 都为空，必须靠 level 隔离。"""
+        title = "传达学习贯彻党的二十届五中全会精神会议在各地召开"
+        province = self._source(city="", level="province")
+        self._news(province, title, "https://www.example.gov.cn/a.html")
+        national = self._source(city="", level="national")
+        self.assertFalse(self._dup(national, title, "https://www.example.gov.cn/b.html"))
+
+    def test_national_orgs_share_one_namespace(self):
+        """十几个部委站转载同一篇中央通稿，只保留最先抓到的那条。"""
+        title = "李强主持召开国务院常务会议部署下一阶段经济工作"
+        first = self._source(city="", level="national")
+        self._news(first, title, "https://www.example.gov.cn/a.html")
+        second = self._source(city="", level="national")
+        self.assertTrue(self._dup(second, title, "https://www.example.gov.cn/b.html"))
 
 
 if __name__ == "__main__":

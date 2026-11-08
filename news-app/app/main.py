@@ -71,6 +71,12 @@ def _migrate(engine):
                     f"ALTER TABLE {table} ADD COLUMN region_district VARCHAR(20) DEFAULT ''"
                 ))
                 conn.commit()
+            cols = [r[1] for r in conn.execute(text(f"PRAGMA table_info({table})"))]
+            if "region_org" not in cols:
+                conn.execute(text(
+                    f"ALTER TABLE {table} ADD COLUMN region_org VARCHAR(50) DEFAULT ''"
+                ))
+                conn.commit()
         cols = [r[1] for r in conn.execute(text("PRAGMA table_info(news)"))]
         if "ai_error" not in cols:
             conn.execute(text("ALTER TABLE news ADD COLUMN ai_error TEXT DEFAULT ''"))

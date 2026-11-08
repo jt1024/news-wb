@@ -25,7 +25,8 @@ class Source(Base):
     region_province: Mapped[str] = mapped_column(String(20), default="广东省")
     region_city: Mapped[str] = mapped_column(String(20), default="")
     region_district: Mapped[str] = mapped_column(String(20), default="")  # 区/县，市级源为空
-    level: Mapped[str] = mapped_column(String(20), default="city")  # province|city|district
+    region_org: Mapped[str] = mapped_column(String(50), default="")  # 国家部委/机构简称，国家级源专用
+    level: Mapped[str] = mapped_column(String(20), default="city")  # national|province|city|district
     base_url: Mapped[str] = mapped_column(String(500), default="")
     list_url: Mapped[str] = mapped_column(String(500))
     fetch_type: Mapped[str] = mapped_column(String(10), default="html")  # rss|html
@@ -56,6 +57,7 @@ class News(Base):
     region_province: Mapped[str] = mapped_column(String(20), default="广东省")
     region_city: Mapped[str] = mapped_column(String(20), default="")
     region_district: Mapped[str] = mapped_column(String(20), default="")
+    region_org: Mapped[str] = mapped_column(String(50), default="")
     level: Mapped[str] = mapped_column(String(20), default="city")
 
     content_type: Mapped[str] = mapped_column(String(20), default="news")

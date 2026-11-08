@@ -71,12 +71,17 @@ def is_duplicate(db: Session, source: Source, url_h: str, t_hash: str, title: st
     # 层 1：URL 精确匹配
     if db.execute(select(News.id).where(News.url_hash == url_h).limit(1)).scalar():
         return True
-    # 层 2：标题精确指纹（限定同地域，避免不同城市/不同区同名标题误判）/ 同源相似度（近 60 天）
+    # 层 2：标题精确指纹（限定同层级同地域，避免不同城市/不同区同名标题误判）/ 同源相似度（近 60 天）
     # 广州 11 个区同属「广州市」，必须再按区收窄，否则跨区同名通稿会被当成重复丢掉。
+    # 国家级源的 city/district 都为空，加 level 条件是为了：
+    #   1) 与同样 city 为空的广东省级源区分开；
+    #   2) 各国家部委共享同一命名空间——「李强主持召开国务院常务会议」这类
+    #      中央通稿会被十几个部委站同时转载，只保留最先抓到的那条即可。
     district = getattr(source, "region_district", "") or ""
     if db.execute(
         select(News.id).where(
             News.title_hash == t_hash,
+            News.level == source.level,
             News.region_city == source.region_city,
             News.region_district == district,
         ).limit(1)
@@ -154,8 +159,10 @@ async def fetch_source(source: Source, db: Session, max_items: int = 50) -> Fetc
                 region_province=source.region_province,
                 region_city=source.region_city,
                 region_district=getattr(source, "region_district", "") or "",
+                region_org=getattr(source, "region_org", "") or "",
                 level=source.level,
-                publish_time=item.publish_time,
+                # 部委列表页常不显示日期：URL 日期已在解析层兜底，这里再用详情页 meta 补一次
+                publish_time=item.publish_time or getattr(detail, "publish_time", None),
             )
             db.add(news)
             inserted += 1

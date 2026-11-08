@@ -19,6 +19,8 @@ def _brief(n: News) -> dict:
         "summary": n.ai_summary or (n.content_text[:120] if n.content_text else ""),
         "city": n.region_city,
         "district": n.region_district or "",
+        "org": n.region_org or "",
+        "level": n.level,
         "source": n.source.name if n.source else "",
         "content_type": n.content_type,
         "tags": [t.name for t in n.tags],
@@ -33,6 +35,8 @@ def _brief(n: News) -> dict:
 def list_news(
     city: str = "",
     district: str = "",
+    level: str = "",
+    org: str = "",
     type_: str = Query("", alias="type"),
     tag: str = "",
     q: str = "",
@@ -47,6 +51,10 @@ def list_news(
         stmt = stmt.where(News.region_city == city)
     if district:
         stmt = stmt.where(News.region_district == district)
+    if level:
+        stmt = stmt.where(News.level == level)
+    if org:
+        stmt = stmt.where(News.region_org == org)
     if type_:
         stmt = stmt.where(News.content_type == type_)
     if tag:
@@ -106,12 +114,14 @@ def meta(db: Session = Depends(get_db)):
     cities = [r[0] for r in db.execute(select(News.region_city).distinct()).all() if r[0]]
     # 从源配置取而非新闻表：新接入的区还没抓到文章时，筛选下拉也要有选项
     districts = [r[0] for r in db.execute(select(Source.region_district).distinct()).all() if r[0]]
+    orgs = [r[0] for r in db.execute(select(Source.region_org).distinct()).all() if r[0]]
     tags = [t.name for t in db.execute(select(Tag)).scalars()]
     sources = [{"id": s.id, "name": s.name, "city": s.region_city,
-                "district": s.region_district or "", "level": s.level, "enabled": s.enabled}
+                "district": s.region_district or "", "org": s.region_org or "",
+                "level": s.level, "enabled": s.enabled}
                for s in db.execute(select(Source)).scalars()]
     return {"cities": sorted(cities), "districts": sorted(districts),
-            "tags": tags, "sources": sources,
+            "orgs": sorted(orgs), "tags": tags, "sources": sources,
             "types": [
                 {"key": "news", "label": "新闻动态"},
                 {"key": "notice", "label": "通知公告"},

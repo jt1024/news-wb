@@ -50,10 +50,14 @@ def collect(period: str, today: date | None = None) -> dict:
         total = one("SELECT COUNT(*) FROM news WHERE date(publish_time)>=? AND date(publish_time)<?", (s, e))
         prev_total = one("SELECT COUNT(*) FROM news WHERE date(publish_time)>=? AND date(publish_time)<?", (prev_s, s))
         interpreted = one("SELECT COUNT(*) FROM news WHERE date(publish_time)>=? AND date(publish_time)<? AND status='interpreted'", (s, e))
-        city_count = one("SELECT COUNT(DISTINCT region_city) FROM news WHERE date(publish_time)>=? AND date(publish_time)<?", (s, e))
+        city_count = one("SELECT COUNT(DISTINCT region_city) FROM news WHERE date(publish_time)>=? "
+                         "AND date(publish_time)<? AND region_city!=''", (s, e))
+        # 国家级新闻 region_city 为空，不能混进「广东省」或地市榜
+        national_count = one("SELECT COUNT(*) FROM news WHERE date(publish_time)>=? "
+                             "AND date(publish_time)<? AND level='national'", (s, e))
         cities = [{"city": r[0] or "广东省", "n": r[1]} for r in conn.execute(
             "SELECT region_city, COUNT(*) n FROM news WHERE date(publish_time)>=? AND date(publish_time)<? "
-            "GROUP BY region_city ORDER BY n DESC LIMIT 10", (s, e))]
+            "AND region_city!='' GROUP BY region_city ORDER BY n DESC LIMIT 10", (s, e))]
         topics = [{"tag": r[0], "n": r[1]} for r in conn.execute(
             "SELECT t.name, COUNT(*) n FROM news_tags nt JOIN tags t ON t.id=nt.tag_id "
             "JOIN news n ON n.id=nt.news_id WHERE date(n.publish_time)>=? AND date(n.publish_time)<? "
@@ -63,12 +67,14 @@ def collect(period: str, today: date | None = None) -> dict:
             "GROUP BY content_type ORDER BY n DESC", (s, e))]
         # 政策类优先的代表文章；不足 8 条用最新新闻补齐
         picks = list(conn.execute(
-            "SELECT title, region_city, substr(publish_time,1,10), url, content_type FROM news "
+            "SELECT title, COALESCE(NULLIF(region_org,''), NULLIF(region_city,''), '广东省'), "
+            "substr(publish_time,1,10), url, content_type FROM news "
             "WHERE date(publish_time)>=? AND date(publish_time)<? AND content_type IN ('policy','notice','interpretation') "
             "ORDER BY publish_time DESC LIMIT 8", (s, e)))
         if len(picks) < 8:
             picks += list(conn.execute(
-                "SELECT title, region_city, substr(publish_time,1,10), url, content_type FROM news "
+                "SELECT title, COALESCE(NULLIF(region_org,''), NULLIF(region_city,''), '广东省'), "
+                "substr(publish_time,1,10), url, content_type FROM news "
                 "WHERE date(publish_time)>=? AND date(publish_time)<? AND content_type NOT IN ('policy','notice','interpretation') "
                 "ORDER BY publish_time DESC LIMIT ?", (s, e, 8 - len(picks))))
         # 与本周期相比的上升主题
@@ -94,12 +100,16 @@ def collect(period: str, today: date | None = None) -> dict:
                             "WHERE enabled=1 AND region_city!=''")
         source_districts = one("SELECT COUNT(DISTINCT region_district) FROM sources "
                                "WHERE enabled=1 AND region_district!=''")
+        source_orgs = one("SELECT COUNT(DISTINCT region_org) FROM sources "
+                          "WHERE enabled=1 AND region_org!=''")
     finally:
         conn.close()
 
     scope = f"{source_count} 源 / {source_cities} 地市"
     if source_districts:
         scope += f" / {source_districts} 区"
+    if source_orgs:
+        scope += f" / {source_orgs} 部委"
 
     days = (end - start).days
     return {
@@ -113,6 +123,7 @@ def collect(period: str, today: date | None = None) -> dict:
         "daily_avg": round(total / max(days, 1), 1),
         "interpreted": interpreted,
         "city_count": city_count,
+        "national_count": national_count,
         "cities": cities, "topics": topics, "types": types,
         "picks": [{"title": r[0], "city": r[1] or "广东省", "date": r[2],
                    "url": r[3], "type": TYPE_LABEL.get(r[4], r[4])} for r in picks],
@@ -135,6 +146,7 @@ def ai_summary(d: dict) -> str:
             f"周期：{d['label']}，发布 {d['total']} 篇（上期 {d['prev_total']} 篇，{'增' if d['delta'] >= 0 else '减'} {abs(d['delta'])} 篇），日均 {d['daily_avg']} 篇",
             "热门主题：" + "、".join(f"{t['tag']}({t['n']})" for t in d["topics"][:6]),
             "活跃地市：" + "、".join(f"{c['city']}({c['n']})" for c in d["cities"][:6]),
+            f"国家部委新闻：{d.get('national_count', 0)} 篇（{d.get('scope', '')}）",
             "上升主题：" + "、".join(f"{r['tag']}(+{r['delta']})" for r in d["rising"][:4] if r["delta"] > 0),
             "代表文章：" + "；".join(p["title"][:36] for p in d["picks"][:8]),
         ]
@@ -155,7 +167,8 @@ def build_markdown(d: dict, summary: str) -> str:
         f"# 广东政务新闻{'周报' if d['period'] == 'weekly' else '月报'} · {d['label']}",
         "",
         f"**发布量**：{d['total']} 篇（上期 {d['prev_total']}，{'↑' if d['delta'] >= 0 else '↓'}{abs(d['delta'])}）｜日均 {d['daily_avg']} 篇",
-        f"**覆盖**：{d['city_count']} 个活跃地市｜{d.get('scope', '')}｜AI 解读 {d['interpreted']}/{d['total']} 篇",
+        f"**覆盖**：{d['city_count']} 个活跃地市｜国家部委 {d.get('national_count', 0)} 篇｜"
+        f"{d.get('scope', '')}｜AI 解读 {d['interpreted']}/{d['total']} 篇",
         f"**抓取**：{d['rounds']} 轮{'（该周期早于平台上线）' if not d['rounds'] else ''}｜新增 {d['inserted']} 篇｜源级失败 {d['failed']} 次",
         "",
     ]

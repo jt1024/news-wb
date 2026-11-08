@@ -52,6 +52,14 @@
 
 <div class="filter-bar">
   <div class="filter-inner">
+    <select id="f-level" title="行政层级">
+      <option value="">全部层级</option>
+      <option value="national">国家部委</option>
+      <option value="province">省级</option>
+      <option value="city">地市级</option>
+      <option value="district">区县级</option>
+    </select>
+    <select id="f-org" title="国家部委 / 机构"><option value="">全部部委</option></select>
     <select id="f-city"><option value="">全部地市</option></select>
     <select id="f-district" title="广州市各区新闻"><option value="">全部区县</option></select>
     <select id="f-type"><option value="">全部类型</option></select>
@@ -84,6 +92,15 @@ let page = 1, loading = false;
 function logout() { localStorage.removeItem("nb_token"); location.href = "/login.html"; }
 function esc(s) { return (s || "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
 const TYPE_LABEL = {news: "新闻动态", notice: "通知公告", policy: "政策文件", interpretation: "政策解读", procurement: "招采公示"};
+function regionChips(n) {
+  if (n.level === "national")
+    return `<span class="chip city">国家部委</span>${n.org ? `<span class="chip city">${esc(n.org)}</span>` : ""}`;
+  return `<span class="chip city">${esc(n.city || "广东省")}</span>${n.district ? `<span class="chip city">${esc(n.district)}</span>` : ""}`;
+}
+function regionText(n) {
+  if (n.level === "national") return "国家部委" + (n.org ? " · " + esc(n.org) : "");
+  return esc(n.city || "广东省") + (n.district ? " · " + esc(n.district) : "");
+}
 
 async function loadMeta() {
   const r = await (await fetch("/api/meta", {headers: H})).json();
@@ -91,6 +108,8 @@ async function loadMeta() {
   r.cities.forEach(c => city.add(new Option(c, c)));
   const district = document.getElementById("f-district");
   (r.districts || []).forEach(d => district.add(new Option(d, d)));
+  const org = document.getElementById("f-org");
+  (r.orgs || []).forEach(o => org.add(new Option(o, o)));
   const type = document.getElementById("f-type");
   r.types.forEach(t => type.add(new Option(t.label, t.key)));
   const tag = document.getElementById("f-tag");
@@ -99,7 +118,7 @@ async function loadMeta() {
 
 function filterQuery() {
   const p = new URLSearchParams();
-  const map = {city: "f-city", district: "f-district", type: "f-type", tag: "f-tag", start: "f-start", end: "f-end", q: "f-q"};
+  const map = {level: "f-level", org: "f-org", city: "f-city", district: "f-district", type: "f-type", tag: "f-tag", start: "f-start", end: "f-end", q: "f-q"};
   for (const [k, id] of Object.entries(map)) {
     const v = document.getElementById(id).value;
     if (v) p.set(k === "type" ? "type" : k, v);
@@ -133,8 +152,7 @@ function render(data, replace) {
     <div class="news-item" onclick="openDetail(${n.id})">
       <h3>${esc(n.title)}</h3>
       <div class="meta">
-        <span class="chip city">${esc(n.city || "广东省")}</span>
-        ${n.district ? `<span class="chip city">${esc(n.district)}</span>` : ""}
+        ${regionChips(n)}
         <span class="chip type">${TYPE_LABEL[n.content_type] || n.content_type}</span>
         ${(n.tags || []).map(t => `<span class="chip tag">${esc(t)}</span>`).join("")}
         <span class="dot">${esc(n.source)}</span>
@@ -168,7 +186,7 @@ async function openDetail(id) {
   document.getElementById("detail").innerHTML = `
     <h2>${esc(n.title)}</h2>
     <div class="src">
-      来源：${esc(n.source)} · ${esc(n.city || "广东省")}${n.district ? " · " + esc(n.district) : ""} · 发布于 ${(n.publish_time || "").slice(0, 10)}
+      来源：${esc(n.source)} · ${regionText(n)} · 发布于 ${(n.publish_time || "").slice(0, 10)}
       · <a href="${esc(n.url)}" target="_blank">查看原文 ↗</a>
       <span class="chip type" style="margin-left:4px">${TYPE_LABEL[n.content_type] || n.content_type}</span>
     </div>
@@ -203,21 +221,31 @@ function closeDialog() { document.getElementById("mask").classList.remove("open"
 document.addEventListener("keydown", e => { if (e.key === "Escape") closeDialog(); });
 
 function resetFilters() {
-  ["f-city","f-district","f-type","f-tag","f-start","f-end","f-q"].forEach(id => document.getElementById(id).value = "");
-  syncDistrict();
+  ["f-level","f-org","f-city","f-district","f-type","f-tag","f-start","f-end","f-q"].forEach(id => document.getElementById(id).value = "");
+  syncFilters();
   load(1);
 }
-/* 区级筛选只在广州（或未选城市）下有意义，选其它地市时禁用并清空 */
-function syncDistrict() {
-  const city = document.getElementById("f-city").value;
+/* 层级联动：国家级源没有地市/区县，省级源没有地市；区县只在广州（或未选城市）下可选。
+   选定某个部委时自动把层级切到「国家部委」，避免筛出空结果。 */
+function syncFilters() {
+  const lvl = document.getElementById("f-level").value;
+  const org = document.getElementById("f-org");
+  org.disabled = lvl !== "" && lvl !== "national";
+  if (org.disabled) org.value = "";
+  const city = document.getElementById("f-city");
+  city.disabled = lvl === "national" || lvl === "province";
+  if (city.disabled) city.value = "";
   const d = document.getElementById("f-district");
-  const enabled = !city || city === "广州市";
-  d.disabled = !enabled;
-  if (!enabled) d.value = "";
+  d.disabled = city.disabled || (city.value && city.value !== "广州市");
+  if (d.disabled) d.value = "";
 }
-document.getElementById("f-city").addEventListener("change", syncDistrict);
+["f-level", "f-city"].forEach(id => document.getElementById(id).addEventListener("change", syncFilters));
+document.getElementById("f-org").addEventListener("change", e => {
+  if (e.target.value) document.getElementById("f-level").value = "national";
+  syncFilters();
+});
 document.getElementById("f-q").addEventListener("keydown", e => { if (e.key === "Enter") load(1); });
-loadMeta().then(() => { syncDistrict(); load(1); });
+loadMeta().then(() => { syncFilters(); load(1); });
 </script>
 </body>
 </html>

@@ -7,10 +7,13 @@ from app.crawler.base import (
     Fetcher,
     _clean_text_lines,
     _clean_title,
+    _detail_publish_date,
     _is_footer_only,
     _parse_date,
+    _parse_date_from_url,
     same_site,
 )
+from bs4 import BeautifulSoup
 
 
 class CleanTitleTests(unittest.TestCase):
@@ -42,6 +45,14 @@ class CleanTitleTests(unittest.TestCase):
     def test_non_string_input(self):
         self.assertEqual(_clean_title(123), "123")
 
+    def test_trailing_publish_date_is_stripped(self):
+        """交通运输部把日期拼在链接文本尾部，不能进标题。"""
+        self.assertEqual(
+            _clean_title("全国首个游艇水污染物全接收政策落地三亚 2026-11-06"),
+            "全国首个游艇水污染物全接收政策落地三亚",
+        )
+        self.assertEqual(_clean_title("会议召开 2026年11月6日"), "会议召开")
+
 
 class SameSiteTests(unittest.TestCase):
     def test_same_host(self):
@@ -57,6 +68,19 @@ class SameSiteTests(unittest.TestCase):
 
     def test_unparsable_host_is_allowed(self):
         self.assertTrue(same_site("/relative/a.html", "https://www.heyuan.gov.cn"))
+
+    def test_public_suffix_is_not_a_parent_domain(self):
+        """所有政务站都在 .gov.cn 下；gov.cn 不能当 samr.gov.cn 的父域放行。
+
+        回归：市场监管总局首页曾把中国政府网通稿当成本部新闻抓入库。
+        """
+        self.assertFalse(same_site("https://www.gov.cn/yaowen/202611/content_1.htm",
+                                   "https://www.samr.gov.cn"))
+        self.assertFalse(same_site("https://www.gov.cn/zhengce/content/1.htm",
+                                   "https://www.mca.gov.cn"))
+        # 真实父子域仍然放行
+        self.assertTrue(same_site("https://vod.mnr.gov.cn/ztp/1.htm",
+                                  "https://www.mnr.gov.cn"))
 
 
 class ParseListTests(unittest.TestCase):
@@ -193,7 +217,134 @@ class DistrictSourceConfigTests(unittest.TestCase):
         from app.crawler.sources import SEED_SOURCES
 
         for c in SEED_SOURCES:
-            self.assertIn(c["level"], ("province", "city", "district"))
+            self.assertIn(c["level"], ("national", "province", "city", "district"))
+
+
+class UrlDateTests(unittest.TestCase):
+    """部委站列表页多不显示日期，靠 URL 里的发布日期兜底。"""
+
+    def test_energy_admin_date_dir(self):
+        self.assertEqual(
+            _parse_date_from_url("https://www.nea.gov.cn/20261105/abc123/c.html"),
+            datetime(2026, 11, 5),
+        )
+
+    def test_trs_article_id(self):
+        self.assertEqual(
+            _parse_date_from_url("https://www.mof.gov.cn/x/202611/t20261105_4004145.htm"),
+            datetime(2026, 11, 5),
+        )
+
+    def test_urite_article_path(self):
+        self.assertEqual(
+            _parse_date_from_url("https://www.nhsa.gov.cn/art/2026/9/23/art_14_22334.html"),
+            datetime(2026, 9, 23),
+        )
+
+    def test_no_date_in_url(self):
+        self.assertIsNone(_parse_date_from_url("https://www.gov.cn/yaowen/202611/content_1.htm"))
+        self.assertIsNone(_parse_date_from_url("https://www.samr.gov.cn/xw/zj/art/2026/art_abc.html"))
+
+
+class JsonListTests(unittest.TestCase):
+    def setUp(self):
+        self.source = SimpleNamespace(
+            name="中国政府网 - 要闻", base_url="https://www.gov.cn",
+            list_url="https://www.gov.cn/yaowen/liebiao/", fetch_type="json",
+            selector_config={"list_api": "https://www.gov.cn/yaowen/liebiao/YAOWENLIEBIAO.json"},
+        )
+
+    def test_gov_cn_array_format_and_external_filter(self):
+        import json
+
+        raw = json.dumps([
+            {"TITLE": "国务院常务会议部署四季度经济工作",
+             "URL": "https://www.gov.cn/yaowen/202611/content_7085000.htm",
+             "DOCRELPUBTIME": "2026-11-07"},
+            {"TITLE": "外站视频新闻不应被收录进本平台",
+             "URL": "https://tv.cctv.com/2026/11/07/VIDEabc.shtml",
+             "DOCRELPUBTIME": "2026-11-07"},
+            {"TITLE": "国务院发布关于进一步优化营商环境的通知",
+             "URL": "https://www.gov.cn/zhengce/content/202611/content_7085001.htm",
+             "DOCRELPUBTIME": "2026-11-06"},
+        ], ensure_ascii=False)
+        items = Fetcher(self.source)._parse_json_list(raw)
+        self.assertEqual(len(items), 2)
+        self.assertEqual(items[0].publish_time, datetime(2026, 11, 7))
+        self.assertTrue(all("gov.cn" in i.url for i in items))
+
+    def test_legacy_postmeta_format_still_works(self):
+        import json
+
+        zhuhai = SimpleNamespace(
+            name="珠海市人民政府 - 珠海要闻", base_url="https://www.zhuhai.gov.cn",
+            list_url="https://www.zhuhai.gov.cn/postmeta/i/4013.json", fetch_type="json",
+            selector_config={},
+        )
+        raw = json.dumps({"articles": [{
+            "title": "珠海市召开推进粤港澳大湾区建设工作会议",
+            "url": "https://www.zhuhai.gov.cn/xw/content/post_123.html",
+            "publish_time": 1762502400000,
+        }]}, ensure_ascii=False)
+        items = Fetcher(zhuhai)._parse_json_list(raw)
+        self.assertEqual(len(items), 1)
+        self.assertIsNotNone(items[0].publish_time)
+
+
+class DetailDateTests(unittest.TestCase):
+    def test_pubdate_meta(self):
+        html = ('<html><head><meta name="PubDate" content="2026-11-07 10:22"></head>'
+                '<body><p>市场监管总局发布合规提示。</p></body></html>')
+        self.assertEqual(_detail_publish_date(BeautifulSoup(html, "lxml"), html),
+                         datetime(2026, 11, 7))
+
+    def test_labeled_inline_date(self):
+        html = '<html><body><span>发布时间：2026-11-05</span><p>正文内容</p></body></html>'
+        self.assertEqual(_detail_publish_date(BeautifulSoup(html, "lxml"), html),
+                         datetime(2026, 11, 5))
+
+    def test_historical_date_in_body_is_ignored(self):
+        html = '<html><body><p>根据2020年1月1日印发的暂行办法，现就有关事项通知如下。</p></body></html>'
+        self.assertIsNone(_detail_publish_date(BeautifulSoup(html, "lxml"), html))
+
+
+class NationalSourceConfigTests(unittest.TestCase):
+    def test_national_sources_are_well_formed(self):
+        from app.crawler.sources import SEED_SOURCES
+
+        national = [c for c in SEED_SOURCES if c.get("level") == "national"]
+        self.assertEqual(len(national), 23)
+        for c in national:
+            self.assertEqual(c["region_province"], "全国")
+            self.assertEqual(c["region_city"], "")
+            self.assertEqual(c.get("region_district", ""), "")
+            self.assertTrue(c["region_org"], c["name"])
+            self.assertTrue(c["list_url"].startswith(("http://", "https://")))
+            self.assertTrue(c["base_url"])
+
+    def test_covers_22_ministry_orgs(self):
+        from app.crawler.sources import SEED_SOURCES
+
+        orgs = {c["region_org"] for c in SEED_SOURCES if c.get("level") == "national"}
+        self.assertEqual(len(orgs), 22)
+        for name in ("国家发展改革委", "财政部", "商务部", "中国人民银行",
+                     "市场监管总局", "中国政府网", "国家数据局"):
+            self.assertIn(name, orgs)
+
+    def test_extract_detail_carries_publish_date(self):
+        f = Fetcher(SimpleNamespace(
+            name="t", base_url="https://www.samr.gov.cn",
+            list_url="https://www.samr.gov.cn/xw/index.html",
+            fetch_type="html", selector_config={"item": "a"},
+        ))
+        html = ('<html><head><meta name="PubDate" content="2026-11-07"></head>'
+                '<body><div id="zoom">'
+                '<p>市场监管总局发布合规提示，规范网络集中促销经营活动，要求平台企业严格落实主体责任。</p>'
+                '<p>各地市场监管部门要加强督促检查，重点查处先提价后打折、虚假宣传等违法行为，'
+                '维护公平有序的网络交易秩序和消费者合法权益。</p></div></body></html>')
+        d = f._extract_detail(html)
+        self.assertEqual(d.publish_time, datetime(2026, 11, 7))
+        self.assertGreater(len(d.content_text), 10)
 
 
 if __name__ == "__main__":

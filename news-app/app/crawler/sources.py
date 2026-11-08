@@ -373,4 +373,206 @@ SEED_SOURCES = [
         # 列表页 href 带前导空格，base.py 已 strip；正文容器是 .detailCon
         "selector_config": {"item": "a", "content": ".detailCon, .tyxl_nr_con"},
     },
+    # ============ 国家部委 / 国务院机构（2026-11-08 逐站探测 + 临时库全链路实测） ============
+    # 统一 level=national + region_province=全国 + region_city/district 为空 + region_org=机构简称。
+    # 判重第 2 层按 (level, city, district) 收窄：国家级各机构共享一个命名空间，
+    # 十几个部委站同时转载的中央通稿只保留最先抓到的那条，省下大量 AI 额度。
+    #
+    # 部委站与地市站的三点显著差异，已在 base.py 里做成通用能力：
+    #   1) 大量文章 URL 以 .htm 结尾（财政部/农业农村部/中国政府网）；
+    #   2) 人民银行把每篇文章放在 /<14位时间戳>/index.html，不能当栏目首页排除；
+    #   3) 列表页普遍不显示日期，靠 URL 里的日期 + 详情页 meta PubDate 兜底。
+    {
+        "name": "中国政府网 - 要闻",
+        "region_province": "全国", "region_city": "", "region_org": "中国政府网",
+        "level": "national",
+        "base_url": "https://www.gov.cn",
+        # 列表页 /yaowen/liebiao/ 是 ajax 空壳，真正的 400 条带日期清单在这个静态 JSON
+        "list_url": "https://www.gov.cn/yaowen/liebiao/",
+        "fetch_type": "json",
+        "selector_config": {"list_api": "https://www.gov.cn/yaowen/liebiao/YAOWENLIEBIAO.json"},
+    },
+    {
+        "name": "中国政府网 - 国务院政策",
+        "region_province": "全国", "region_city": "", "region_org": "中国政府网",
+        "level": "national",
+        "base_url": "https://www.gov.cn",
+        "list_url": "https://www.gov.cn/",
+        "fetch_type": "html",
+        "selector_config": {"item": "a[href*='/zhengce/content/']"},
+    },
+    {
+        "name": "国家发展改革委 - 新闻发布",
+        "region_province": "全国", "region_city": "", "region_org": "国家发展改革委",
+        "level": "national",
+        "base_url": "https://www.ndrc.gov.cn",
+        "list_url": "https://www.ndrc.gov.cn/xwdt/xwfb/",
+        "fetch_type": "html", "selector_config": {"item": "a"},
+    },
+    {
+        "name": "工业和信息化部 - 工信动态",
+        "region_province": "全国", "region_city": "", "region_org": "工业和信息化部",
+        "level": "national",
+        "base_url": "https://www.miit.gov.cn",
+        # 栏目页是 CMS 的 JS 空壳（只有 11 个 a 标签），首页才有静态文章链接
+        "list_url": "https://www.miit.gov.cn/",
+        "fetch_type": "html", "selector_config": {"item": "a[href*='/art/']"},
+    },
+    {
+        "name": "财政部 - 财政新闻",
+        "region_province": "全国", "region_city": "", "region_org": "财政部",
+        "level": "national",
+        "base_url": "https://www.mof.gov.cn",
+        "list_url": "https://www.mof.gov.cn/zhengwuxinxi/caizhengxinwen/",
+        "fetch_type": "html",
+        # 本部文章是 ./202611/t...htm 相对链接；其余是各地监管局子站，用前缀排除
+        "selector_config": {"item": "a[href^='./']"},
+    },
+    {
+        "name": "教育部 - 工作动态",
+        "region_province": "全国", "region_city": "", "region_org": "教育部",
+        "level": "national",
+        "base_url": "https://www.moe.gov.cn",
+        "list_url": "https://www.moe.gov.cn/jyb_xwfb/gzdt_gzdt/",
+        "fetch_type": "html", "selector_config": {"item": "a"},
+    },
+    {
+        "name": "科学技术部 - 科技动态",
+        "region_province": "全国", "region_city": "", "region_org": "科学技术部",
+        "level": "national",
+        "base_url": "https://www.most.gov.cn",
+        "list_url": "https://www.most.gov.cn/kjbgz/",
+        "fetch_type": "html", "selector_config": {"item": "a"},
+    },
+    {
+        "name": "民政部 - 民政要闻",
+        "region_province": "全国", "region_city": "", "region_org": "民政部",
+        "level": "national",
+        "base_url": "https://www.mca.gov.cn",
+        "list_url": "https://www.mca.gov.cn/n152/n164/index.html",
+        "fetch_type": "html", "selector_config": {"item": "a"},
+    },
+    {
+        "name": "自然资源部 - 动态",
+        "region_province": "全国", "region_city": "", "region_org": "自然资源部",
+        "level": "national",
+        "base_url": "https://www.mnr.gov.cn",
+        "list_url": "https://www.mnr.gov.cn/dt/",
+        "fetch_type": "html", "selector_config": {"item": "a"},
+    },
+    {
+        "name": "生态环境部 - 环境要闻",
+        "region_province": "全国", "region_city": "", "region_org": "生态环境部",
+        "level": "national",
+        "base_url": "https://www.mee.gov.cn",
+        "list_url": "https://www.mee.gov.cn/ywdt/hjywnews/",
+        "fetch_type": "html", "selector_config": {"item": "a"},
+    },
+    {
+        "name": "住房城乡建设部 - 建设要闻",
+        "region_province": "全国", "region_city": "", "region_org": "住房城乡建设部",
+        "level": "national",
+        "base_url": "https://www.mohurd.gov.cn",
+        # 栏目页同样是 CMS 空壳，用首页静态链接
+        "list_url": "https://www.mohurd.gov.cn/",
+        "fetch_type": "html", "selector_config": {"item": "a[href*='/xinwen/']"},
+    },
+    {
+        "name": "交通运输部 - 交通要闻",
+        "region_province": "全国", "region_city": "", "region_org": "交通运输部",
+        "level": "national",
+        "base_url": "https://www.mot.gov.cn",
+        "list_url": "https://www.mot.gov.cn/xinwen/jiaotongyaowen/index.html",
+        "fetch_type": "html", "selector_config": {"item": "a"},
+    },
+    {
+        "name": "农业农村部 - 部动态",
+        "region_province": "全国", "region_city": "", "region_org": "农业农村部",
+        "level": "national",
+        "base_url": "https://www.moa.gov.cn",
+        "list_url": "https://www.moa.gov.cn/xw/zwdt/",
+        "fetch_type": "html", "selector_config": {"item": "a"},
+    },
+    {
+        "name": "商务部 - 新闻发布",
+        "region_province": "全国", "region_city": "", "region_org": "商务部",
+        "level": "national",
+        "base_url": "https://www.mofcom.gov.cn",
+        "list_url": "https://www.mofcom.gov.cn/xwfb/index.html",
+        "fetch_type": "html", "selector_config": {"item": "a"},
+    },
+    {
+        "name": "应急管理部 - 要闻",
+        "region_province": "全国", "region_city": "", "region_org": "应急管理部",
+        "level": "national",
+        "base_url": "https://www.mem.gov.cn",
+        "list_url": "https://www.mem.gov.cn/",
+        "fetch_type": "html", "selector_config": {"item": "a"},
+    },
+    {
+        "name": "中国人民银行 - 新闻发布",
+        "region_province": "全国", "region_city": "", "region_org": "中国人民银行",
+        "level": "national",
+        "base_url": "http://www.pbc.gov.cn",
+        "list_url": "http://www.pbc.gov.cn/goutongjiaoliu/113456/113469/index.html",
+        "fetch_type": "html", "selector_config": {"item": "a[href*='113469/']"},
+    },
+    {
+        "name": "国家税务总局 - 税务新闻",
+        "region_province": "全国", "region_city": "", "region_org": "国家税务总局",
+        "level": "national",
+        "base_url": "https://www.chinatax.gov.cn",
+        "list_url": "https://www.chinatax.gov.cn/chinatax/n810219/n810724/common_list_swxw.html",
+        "fetch_type": "html", "selector_config": {"item": "a"},
+    },
+    {
+        "name": "市场监管总局 - 新闻总览",
+        "region_province": "全国", "region_city": "", "region_org": "市场监管总局",
+        "level": "national",
+        "base_url": "https://www.samr.gov.cn",
+        "list_url": "https://www.samr.gov.cn/xw/index.html",
+        "fetch_type": "html", "selector_config": {"item": "a[href*='/xw/']"},
+    },
+    {
+        "name": "中国证监会 - 要闻",
+        "region_province": "全国", "region_city": "", "region_org": "中国证监会",
+        "level": "national",
+        "base_url": "https://www.csrc.gov.cn",
+        "list_url": "https://www.csrc.gov.cn/csrc/c100028/common_list.shtml",
+        "fetch_type": "html", "selector_config": {"item": "a"},
+    },
+    {
+        "name": "国家统计局 - 统计新闻",
+        "region_province": "全国", "region_city": "", "region_org": "国家统计局",
+        "level": "national",
+        "base_url": "https://www.stats.gov.cn",
+        "list_url": "https://www.stats.gov.cn/xw/tjxw/",
+        "fetch_type": "html", "selector_config": {"item": "a"},
+    },
+    {
+        "name": "国家能源局 - 能源要闻",
+        "region_province": "全国", "region_city": "", "region_org": "国家能源局",
+        "level": "national",
+        "base_url": "https://www.nea.gov.cn",
+        # /xwzx/nyyw.htm 是 Vue 空壳，首页的 /c.html 才是静态文章链接
+        "list_url": "https://www.nea.gov.cn/",
+        "fetch_type": "html", "selector_config": {"item": "a[href*='/c.html']"},
+    },
+    {
+        "name": "国家医保局 - 医保动态",
+        "region_province": "全国", "region_city": "", "region_org": "国家医保局",
+        "level": "national",
+        "base_url": "https://www.nhsa.gov.cn",
+        # /col/col14/index.html 是 urite JS 空壳，用首页静态 art 链接
+        "list_url": "https://www.nhsa.gov.cn/",
+        "fetch_type": "html", "selector_config": {"item": "a[href*='/art/']"},
+    },
+    {
+        "name": "国家数据局 - 数据要闻",
+        "region_province": "全国", "region_city": "", "region_org": "国家数据局",
+        "level": "national",
+        "base_url": "https://www.nda.gov.cn",
+        "list_url": "https://www.nda.gov.cn/sjj/index_pc.html",
+        "fetch_type": "html", "selector_config": {"item": "a[href*='/sjj/']"},
+    },
 ]
