@@ -42,7 +42,8 @@ class TrendExtraTests(unittest.TestCase):
         self.engine = create_engine("sqlite://")
         with self.engine.begin() as c:
             c.execute(text("CREATE TABLE news (id INTEGER PRIMARY KEY, title TEXT, region_city TEXT, "
-                           "publish_time TEXT, url TEXT, content_type TEXT)"))
+                           "publish_time TEXT, url TEXT, content_type TEXT, "
+                           "level TEXT DEFAULT 'city', region_org TEXT DEFAULT '')"))
             c.execute(text("CREATE TABLE tags (id INTEGER PRIMARY KEY, name TEXT)"))
             c.execute(text("CREATE TABLE news_tags (news_id INTEGER, tag_id INTEGER)"))
         self.db = sessionmaker(bind=self.engine)()
@@ -59,7 +60,8 @@ class TrendExtraTests(unittest.TestCase):
         with self.engine.begin() as c:
             for i, (title, city, ctype, tag, ago) in enumerate(rows, 1):
                 pub = (today - timedelta(days=ago)).isoformat() + " 09:00:00"
-                c.execute(text("INSERT INTO news VALUES (:i,:t,:c,:p,:u,:ct)"),
+                c.execute(text("INSERT INTO news (id,title,region_city,publish_time,url,content_type) "
+                               "VALUES (:i,:t,:c,:p,:u,:ct)"),
                           {"i": i, "t": title, "c": city, "p": pub,
                            "u": f"https://example.com/{i}", "ct": ctype})
                 if tag not in tag_ids:
@@ -68,6 +70,12 @@ class TrendExtraTests(unittest.TestCase):
                               {"i": tag_ids[tag], "n": tag})
                 c.execute(text("INSERT INTO news_tags VALUES (:n,:t)"),
                           {"n": i, "t": tag_ids[tag]})
+            # 国家级政策文章：city 为空，政策链里应显示机构名而不是「广东省」
+            c.execute(text("INSERT INTO news (id,title,region_city,publish_time,url,content_type,level,region_org) "
+                           "VALUES (5,'国家发展改革委贯彻落实产业扶持办法','',:p,"
+                           "'https://example.com/5','news','national','国家发展改革委')"),
+                      {"p": (today - timedelta(days=4)).isoformat() + " 09:00:00"})
+            c.execute(text("INSERT INTO news_tags VALUES (5,1)"))
         self.start = (today - timedelta(days=30)).isoformat()
 
     def tearDown(self):
@@ -76,14 +84,18 @@ class TrendExtraTests(unittest.TestCase):
 
     def test_policy_chains(self):
         r = policy_chains(self.db, self.start)
-        self.assertEqual(r["signal_total"], 4)
+        self.assertEqual(r["signal_total"], 5)
         self.assertEqual(len(r["chains"]), 1)  # 文旅只有一阶段，被排除
         chain = r["chains"][0]
         self.assertEqual(chain["tag"], "产业")
         self.assertEqual(chain["coverage"], 3)
         self.assertEqual([s["stage"] for s in chain["stages"]], STAGE_ORDER)
-        self.assertEqual([s["count"] for s in chain["stages"]], [1, 0, 1, 1])
+        self.assertEqual([s["count"] for s in chain["stages"]], [1, 0, 1, 2])
         self.assertEqual(chain["stages"][2]["items"][0]["city"], "广州市")
+        # 国家级文章的 city 空，不能回退成「广东省」，应显示机构名
+        cities = [it["city"] for s in chain["stages"] for it in s["items"]]
+        self.assertIn("国家发展改革委", cities)
+        self.assertNotIn("广东省", cities)
 
     def test_city_topic_matrix(self):
         m = city_topic_matrix(self.db, self.start, ["产业", "文旅"], ["广州市", "佛山市", "珠海市"])
@@ -94,6 +106,11 @@ class TrendExtraTests(unittest.TestCase):
         self.assertEqual(get("文旅", "珠海市"), 1)
         self.assertEqual(get("文旅", "广州市"), 0)
         self.assertEqual(m["max"], 2)
+
+    def test_national_news_not_merged_into_province_bucket(self):
+        """国家级新闻 city 为空，若不过滤会被 (city or '广东省') 归到广东省组。"""
+        m = city_topic_matrix(self.db, self.start, ["产业"], ["广东省"])
+        self.assertEqual(m["max"], 0)
 
     def test_empty_inputs(self):
         self.assertEqual(city_topic_matrix(self.db, self.start, [], [])["cells"], [])

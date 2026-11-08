@@ -143,6 +143,7 @@ function renderKpis(d) {
   document.getElementById("kpis").innerHTML = `
     <div class="kpi"><b>${d.total}</b><span>统计范围内新闻</span></div>
     <div class="kpi"><b>${cities}</b><span>活跃地市</span></div>
+    <div class="kpi"><b>${d.national_total || 0}</b><span>国家部委新闻</span></div>
     <div class="kpi"><b>${topics}</b><span>热门主题标签</span></div>
     <div class="kpi"><b>${policies}</b><span>政策类内容</span></div>`;
 }

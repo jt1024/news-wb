@@ -43,15 +43,21 @@ def trends(days: int = Query(30, ge=7, le=365), db: Session = Depends(get_db)):
     ]
 
     # ---- 2. 地市活跃度 ----
+    # 国家级新闻 region_city 为空，若不排除会被映射成「广东省」并挤占地市榜首。
+    # 省级源同样为空，仍按「广东省」单列一组；只有 national 层级需要剔除。
     city_totals = [
         {"city": (r.c or "广东省"), "n": r.n}
         for r in db.execute(
             text("""SELECT region_city c, count(*) n
-                    FROM news WHERE publish_time >= :start
+                    FROM news WHERE publish_time >= :start AND level != 'national'
                     GROUP BY region_city ORDER BY n DESC"""),
             {"start": start},
         )
     ]
+    national_total = db.execute(
+        text("SELECT count(*) FROM news WHERE publish_time >= :start AND level = 'national'"),
+        {"start": start},
+    ).scalar() or 0
 
     # ---- 3. 内容类型分布 ----
     # 注意：列别名不要用单字母 t（与 Row 内部属性冲突），用 ctype
@@ -146,6 +152,7 @@ def trends(days: int = Query(30, ge=7, le=365), db: Session = Depends(get_db)):
     return {
         "days": days,
         "total": total,
+        "national_total": national_total,
         "daily": daily,
         "city_totals": city_totals,
         "type_totals": type_totals,

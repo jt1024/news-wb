@@ -35,7 +35,7 @@ runtime/python313/bin/python3 -m venv .venv   # 用项目自带解释器，或�
 .venv/bin/pip install -r requirements.txt
 cp .env.example .env                          # 必填：ADMIN_PASSWORD、AUTH_SECRET、AI_API_KEY、NOTIFY_*
 chmod 600 .env
-.venv/bin/python scripts/run_tests.py         # 91 个单测，0.2 秒
+.venv/bin/python scripts/run_tests.py         # 92 个单测，0.2 秒
 .venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8300
 ```
 
@@ -203,6 +203,8 @@ chmod 600 .env
 
 `GET /api/trends?days=7|30|90` 与 `web/trends.html`：每日新增走势、地市分布、内容类型分布、主题热度 Top（带时间序列）、上升话题（环比增量在 Python 侧计算，避免 SQLite 别名排序坑）。前端用 ECharts，双 CDN 兜底，复用 `web/ui.css` 的政务红设计令牌。
 
+国家级新闻的 `region_city` 为空，地市活跃度与热力图都显式排除 `level='national'`，避免被 `city or '广东省'` 归到广东省组挤占榜首；趋势页 KPI 单列「国家部委新闻」，政策信号链里的国家级文章显示机构名。
+
 P2 深化（`app/trends_extra.py`）：
 
 - **政策信号串联**：按标题关键词把文章归入「征求意见 → 正式印发 → 贯彻落实 → 政策解读」四阶段（`STAGE_RULES` 顺序即优先级），再按 AI 主题标签聚成时间线；只展示覆盖 ≥2 阶段的主题，每条链可展开各阶段代表文章。泛词（推进 / 调研 / 部署）被刻意排除，避免把日常动态误判成政策落地信号。
@@ -216,7 +218,7 @@ P2 深化（`app/trends_extra.py`）：
 # 或：.venv/bin/python -m unittest discover -s tests -t . -v
 ```
 
-标准库 `unittest`，91 个用例、约 0.2 秒，覆盖标题清洗、同站过滤（含 `gov.cn` 公共后缀）、列表解析、JSON 列表与 URL/meta 日期兜底、三层去重（真实 SQL，含层级隔离）、报告轮次聚合、cron 解析、飞书签名与推送降级、认证密钥隔离、无正文豁免生命周期，以及 P2 的政策阶段识别、政策链与地市矩阵（独立临时库）、周期窗口与 AI 降级、固定链接产出、飞书卡片按钮链接。
+标准库 `unittest`，92 个用例、约 0.2 秒，覆盖标题清洗、同站过滤（含 `gov.cn` 公共后缀）、列表解析、JSON 列表与 URL/meta 日期兜底、三层去重（真实 SQL，含层级隔离）、报告轮次聚合、cron 解析、飞书签名与推送降级、认证密钥隔离、无正文豁免生命周期，以及 P2 的政策阶段识别、政策链与地市矩阵（独立临时库）、周期窗口与 AI 降级、固定链接产出、飞书卡片按钮链接。
 
 `tests/__init__.py` 会把 `DATABASE_URL` 强制指向临时库，**单测绝不连接或修改生产库**。
 
