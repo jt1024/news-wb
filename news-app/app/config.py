@@ -83,6 +83,16 @@ SIMHASH_DISTANCE_THRESHOLD = int(os.getenv("SIMHASH_DISTANCE_THRESHOLD", "3"))
 USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
 FETCH_TIMEOUT = 20
 
+# ---- 创宇盾新版 412 挑战（卫健委 / 药监局）----
+# 这类 WAF 的外链混淆 JS 需要完整浏览器 DOM，quickjs 解不了；用本机 Chrome
+# headless + CDP 跑完挑战取回 cookie。找不到 Chrome 时这两个源本轮失败，不影响其它源。
+CHROME_PATH = os.getenv(
+    "CHROME_PATH", "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+)
+WAF_COOKIE_TTL = int(os.getenv("WAF_COOKIE_TTL", "600"))       # 412 cookie 缓存秒数
+WAF_CHROME_WAIT = float(os.getenv("WAF_CHROME_WAIT", "6"))     # 留给挑战 JS 执行/重载的秒数
+WAF_CHROME_TIMEOUT = int(os.getenv("WAF_CHROME_TIMEOUT", "40"))  # 单次预热总超时
+
 # ---- 定时 ----
 # CRON_HOURS：每天触发的小时列表（逗号分隔，如 "6,12,21"）；
 # 未设置时回退到旧的 CRON_HOUR 单时刻。分钟统一用 CRON_MINUTE。

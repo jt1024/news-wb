@@ -1,7 +1,13 @@
-"""抓取层：标题清洗、同站过滤、列表解析、噪音行剔除、日期解析。"""
+"""抓取层：标题清洗、同站过滤、列表解析、噪音行剔除、日期解析、WAF 挑战。"""
+import json
+import time
 import unittest
 from datetime import datetime
 from types import SimpleNamespace
+
+import httpx
+
+from app.crawler import waf
 
 from app.crawler.base import (
     Fetcher,
@@ -313,7 +319,8 @@ class NationalSourceConfigTests(unittest.TestCase):
         from app.crawler.sources import SEED_SOURCES
 
         national = [c for c in SEED_SOURCES if c.get("level") == "national"]
-        self.assertEqual(len(national), 23)
+        # 23 个首批部委源 + 5 个 WAF/接口攻坚源（海关总署默认禁用）
+        self.assertEqual(len(national), 28)
         for c in national:
             self.assertEqual(c["region_province"], "全国")
             self.assertEqual(c["region_city"], "")
@@ -322,13 +329,16 @@ class NationalSourceConfigTests(unittest.TestCase):
             self.assertTrue(c["list_url"].startswith(("http://", "https://")))
             self.assertTrue(c["base_url"])
 
-    def test_covers_22_ministry_orgs(self):
+    def test_covers_27_ministry_orgs(self):
         from app.crawler.sources import SEED_SOURCES
 
         orgs = {c["region_org"] for c in SEED_SOURCES if c.get("level") == "national"}
-        self.assertEqual(len(orgs), 22)
+        self.assertEqual(len(orgs), 27)
         for name in ("国家发展改革委", "财政部", "商务部", "中国人民银行",
-                     "市场监管总局", "中国政府网", "国家数据局"):
+                     "市场监管总局", "中国政府网", "国家数据局",
+                     # 二次攻坚：WAF / JS 接口站点
+                     "国家卫生健康委", "国家药监局", "人力资源社会保障部",
+                     "金融监管总局", "海关总署"):
             self.assertIn(name, orgs)
 
     def test_extract_detail_carries_publish_date(self):
@@ -345,6 +355,120 @@ class NationalSourceConfigTests(unittest.TestCase):
         d = f._extract_detail(html)
         self.assertEqual(d.publish_time, datetime(2026, 11, 7))
         self.assertGreater(len(d.content_text), 10)
+
+
+class WafChallengeTests(unittest.TestCase):
+    """三类反爬挑战的识别与求解（纯本地，不联网）。"""
+
+    def setUp(self):
+        waf._clearance.clear()
+        waf._chrome_html.clear()
+
+    def tearDown(self):
+        waf._clearance.clear()
+        waf._chrome_html.clear()
+
+    def test_identifies_three_challenge_types(self):
+        self.assertTrue(waf.is_challenge(
+            521, "<script>window.onload=setTimeout('fn(1)',200); var oo = [1,2];</script>"))
+        self.assertFalse(waf.is_challenge(200, "<html><body>正常新闻正文</body></html>"))
+        self.assertTrue(waf.is_wzws_challenge(412, "<script>var $_ts={};r='m';</script>"))
+        self.assertFalse(waf.is_wzws_challenge(412, "no js here"))
+        eo = "<html><body><script>document[\"cookie\"]='EO_Bot_Ssid=1';</script></body></html>"
+        self.assertTrue(waf.is_eo_challenge(200, eo))
+        self.assertFalse(waf.is_eo_challenge(200, "<html>" + "正文" * 5000 + "</html>"))
+
+    def test_eo_cookie_attributes_not_sent_as_cookies(self):
+        url = "https://www.mohrss.gov.cn/xx/"
+        body = ('<script>document["cookie"]="EO_Bot_Ssid=12345; path=/";'
+                'document["cookie"]="__tst_status=1; path=/";</script>')
+        ck = waf.solve_eo(url, body)
+        self.assertIn("EO_Bot_Ssid=12345", ck)
+        self.assertIn("__tst_status=1", ck)
+        with httpx.Client() as client:
+            waf.apply_cookie(client, url)
+            names = {c.name for c in client.cookies.jar}
+        self.assertIn("EO_Bot_Ssid", names)
+        self.assertNotIn("path", names)
+
+    def test_cookie_cache_invalidate(self):
+        url = "https://www.nhc.gov.cn/xwdt/list.shtml"
+        waf._cache("www.nhc.gov.cn", "a=1", 600)
+        self.assertEqual(waf.cookie_header(url), "a=1")
+        waf.invalidate(url)
+        self.assertIsNone(waf.cookie_header(url))
+
+    def test_take_chrome_html_is_one_shot(self):
+        url = "https://www.nmpa.gov.cn/a.html"
+        waf._chrome_html[url] = ("<html>ok</html>", time.time())
+        self.assertEqual(waf.take_chrome_html(url), "<html>ok</html>")
+        self.assertIsNone(waf.take_chrome_html(url))
+        waf._chrome_html[url] = ("<html>old</html>", time.time() - 200)
+        self.assertIsNone(waf.take_chrome_html(url))
+
+
+class NewSourceParsingTests(unittest.TestCase):
+    """金融监管总局 JSON 接口 + 部委公文正文清洗。"""
+
+    def _fetcher(self, selectors):
+        return Fetcher(SimpleNamespace(
+            name="t", base_url="https://www.nfra.gov.cn",
+            list_url="https://www.nfra.gov.cn/cbircweb/DocInfo/Select",
+            fetch_type="json", selector_config=selectors,
+        ))
+
+    def test_json_rows_with_url_template(self):
+        f = self._fetcher({
+            "url_template": "https://www.nfra.gov.cn/cn/view/pages/ItemDetail.html"
+                            "?docId={docId}&itemId=915",
+        })
+        raw = json.dumps({"data": {"rows": [
+            {"docTitle": "国家金融监督管理总局就任职资格管理办法公开征求意见",
+             "publishDate": "2026-11-06", "docId": "1234567"},
+        ]}}, ensure_ascii=False)
+        items = f._parse_json_list(raw)
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0].publish_time, datetime(2026, 11, 6))
+        self.assertIn("docId=1234567", items[0].url)
+
+    def test_api_detail_merges_word_spans(self):
+        raw = json.dumps({"data": {
+            "publishDate": "2026-11-06",
+            "docClob": "<p>为 进一步完善 保险 公司 董事任职 管理， "
+                       "金融监管总局 修订 形成 了 办法。</p>",
+        }}, ensure_ascii=False)
+        d = self._fetcher({})._extract_api_detail(raw)
+        self.assertEqual(d.publish_time, datetime(2026, 11, 6))
+        self.assertIn("为进一步完善保险公司董事任职管理", d.content_text)
+        self.assertIn("金融监管总局修订形成了", d.content_text)
+
+    def test_short_body_with_explicit_content_selector(self):
+        f = Fetcher(SimpleNamespace(
+            name="t", base_url="https://www.mohrss.gov.cn",
+            list_url="https://www.mohrss.gov.cn/", fetch_type="html",
+            selector_config={"item": "a", "content": ".TRS_Editor"},
+        ))
+        html = ('<html><body><div class="TRS_Editor">'
+                '<p>国务院任免国家工作人员。</p>'
+                '<p>免去王志军的国务院副秘书长职务；'
+                '免去莫高义的国务院新闻办公室主任职务。</p>'
+                '</div></body></html>')
+        d = f._extract_detail(html)
+        self.assertIn("免去王志军", d.content_text)
+        self.assertGreater(len(d.content_text), 30)
+
+    def test_metadata_table_lines_stripped(self):
+        lines = ["XZXK-2026-10238", "主题分类", "工作动态", "标题",
+                 "雷平率队赴上海参加第九届进博会", "发布日期",
+                 "雷平率队赴上海参加第九届进博会",
+                 "11月4日至6日，调研组赴上海参加第九届进博会并开展座谈交流。"]
+        out = _clean_text_lines(lines)
+        self.assertNotIn("XZXK-2026-10238", out)
+        self.assertNotIn("主题分类", out)
+        self.assertNotIn("发布日期", out)
+        self.assertIn("11月4日至6日，调研组赴上海参加第九届进博会并开展座谈交流。", out)
+        # 重复标题只保留一次
+        self.assertEqual(out.count("雷平率队赴上海参加第九届进博会"), 1)
 
 
 if __name__ == "__main__":

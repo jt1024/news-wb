@@ -575,4 +575,60 @@ SEED_SOURCES = [
         "list_url": "https://www.nda.gov.cn/sjj/index_pc.html",
         "fetch_type": "html", "selector_config": {"item": "a[href*='/sjj/']"},
     },
+
+    # ---- 二次攻坚：原先被 WAF / 自签证书 / JS 列表挡住的 5 家机构 ----
+    {
+        # 创宇盾新版 412（$_ts 动态 VM），由 waf.solve_wzws 用本机 Chrome headless 预热
+        "name": "国家卫生健康委员会 - 新闻动态",
+        "region_province": "全国", "region_city": "", "region_org": "国家卫生健康委",
+        "level": "national",
+        "base_url": "https://www.nhc.gov.cn",
+        "list_url": "https://www.nhc.gov.cn/wjw/xwdt/list.shtml",
+        "fetch_type": "html", "selector_config": {"item": "a", "content": ".con"},
+    },
+    {
+        "name": "国家药品监督管理局 - 药监动态",
+        "region_province": "全国", "region_city": "", "region_org": "国家药监局",
+        "level": "national",
+        "base_url": "https://www.nmpa.gov.cn",
+        "list_url": "https://www.nmpa.gov.cn/yaowen/ypjgyw/index.html",
+        "fetch_type": "html", "selector_config": {"item": "a"},
+    },
+    {
+        # 首页返回 200 但正文只有 EO_Bot_Ssid 挑战 JS，waf.solve_eo 用 quickjs 解
+        "name": "人力资源和社会保障部 - 部内要闻",
+        "region_province": "全国", "region_city": "", "region_org": "人力资源社会保障部",
+        "level": "national",
+        "base_url": "https://www.mohrss.gov.cn",
+        "list_url": "https://www.mohrss.gov.cn/SYrlzyhshbzb/dongtaixinwen/buneiyaowen/",
+        "fetch_type": "html",
+        "selector_config": {"item": "a", "content": ".TRS_Editor"},
+    },
+    {
+        # 详情页 ItemDetail.html 是 Vue 空壳，列表与正文都走 cbircweb JSON 接口
+        "name": "国家金融监督管理总局 - 监管动态",
+        "region_province": "全国", "region_city": "", "region_org": "金融监管总局",
+        "level": "national",
+        "base_url": "https://www.nfra.gov.cn",
+        "list_url": ("https://www.nfra.gov.cn/cbircweb/DocInfo/"
+                     "SelectDocByItemIdAndChild?itemId=915&pageSize=18&pageIndex=1"),
+        "fetch_type": "json",
+        "selector_config": {
+            "url_template": ("https://www.nfra.gov.cn/cn/view/pages/ItemDetail.html"
+                             "?docId={docId}&itemId=915&generaltype=0"),
+            "detail_api_template": ("https://www.nfra.gov.cn/cbircweb/DocInfo/"
+                                    "SelectByDocId?docId={docId}"),
+        },
+    },
+    {
+        # https 是自签证书链且回 504，只能走 http 明文（已加入 HTTP_ONLY_HOSTS）。
+        # 当前会话的网络策略未放行该域名，先禁用；确认允许后把 enabled 改成 True 即可。
+        "name": "海关总署 - 要闻",
+        "region_province": "全国", "region_city": "", "region_org": "海关总署",
+        "level": "national",
+        "base_url": "http://www.customs.gov.cn",
+        "list_url": "http://www.customs.gov.cn/",
+        "fetch_type": "html", "selector_config": {"item": "a[href*='/customs/']"},
+        "enabled": False,
+    },
 ]

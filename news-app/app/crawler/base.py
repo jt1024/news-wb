@@ -59,6 +59,13 @@ NOISE_TEXT_RE = re.compile(
     r"【?字体.*|字体大小|默认|字号[:：]?.*|【?TOP】?|[】【\[\s]*|大|中|小|超大)$"
 )
 
+# 部委详情页的公文元数据表格：标签与值各占一行（药监局 XZXK-2026-xxxxx）
+META_LINE_RE = re.compile(
+    r"^(?:索引号|索\s*引\s*号|主题分类|标题|文号|发布机构|发文机关|发文日期|"
+    r"成文日期|时效性|体裁|主题词|有效性|发布日期|发布时间)(?:[:：].*)?$"
+    r"|^[A-Z]{2,}[-－]\d{4}[-－]\d+.*$"
+)
+
 # 面包屑片段（如「首页 > 要闻动态 > 潮州要闻」），出现在行首则剔除
 BREADCRUMB_RE = re.compile(r"^(?:首页|要闻动态|政务动态|搜索|>$|>\s*$|\d+\s*)$")
 
@@ -81,7 +88,8 @@ def _clean_text_lines(lines: list[str]) -> list[str]:
         s = ln.strip()
         if not s:
             continue
-        if NOISE_TEXT_RE.match(s) or BREADCRUMB_RE.match(s) or DATE_LINE_RE.match(s):
+        if (NOISE_TEXT_RE.match(s) or BREADCRUMB_RE.match(s)
+                or DATE_LINE_RE.match(s) or META_LINE_RE.match(s)):
             continue
         # 无实质内容的短行（孤立符号/分享按钮组等）
         if re.fullmatch(r"[\W_\s　]*(?:分享|微信|微博|QQ|更多)?[\W_\s　]*", s):
@@ -95,7 +103,17 @@ def _clean_text_lines(lines: list[str]) -> list[str]:
         s = re.sub(r"【?浏览字体[:：]?[^】]*】?", "", s).strip()
         if s:
             out.append(s)
-    return _strip_leading_junk(out)
+    out = _strip_leading_junk(out)
+    # 部委公文表格会把标题重复渲染成一行（药监局），前几行同文只保留首次
+    seen: set[str] = set()
+    deduped = []
+    for i, ln in enumerate(out):
+        if i < 8 and len(ln) >= 8:
+            if ln in seen:
+                continue
+            seen.add(ln)
+        deduped.append(ln)
+    return deduped
 
 
 def _strip_leading_junk(lines: list[str], max_scan: int = 10) -> list[str]:
@@ -213,8 +231,10 @@ class Fetcher:
         self.source = source
         self.selectors = source.selector_config or {}
 
-    # 极少数站点尚未启用 https（实测 https 握手直接失败），保留明文访问
-    HTTP_ONLY_HOSTS = {"www.maoming.gov.cn", "www.jieyang.gov.cn", "gd.tobacco.gov.cn"}
+    # 极少数站点尚未启用 https（实测 https 握手直接失败），保留明文访问。
+    # 海关总署的 https 是自签证书链且回 504，只有 http 明文能返回完整页面。
+    HTTP_ONLY_HOSTS = {"www.maoming.gov.cn", "www.jieyang.gov.cn",
+                       "gd.tobacco.gov.cn", "www.customs.gov.cn"}
 
     @staticmethod
     def _prefer_https(url: str) -> str:
@@ -243,10 +263,28 @@ class Fetcher:
         waf.apply_cookie(client, url)
         try:
             resp = await client.get(url)
-            # 创宇盾 JS 挑战（521）：解出通行 cookie 后重放一次
-            if resp.status_code == 521 and waf.is_challenge(resp.status_code, resp.text):
-                log.warning("WAF challenge on %s, solving", url)
+            # 创宇盾 521（ydclearance）：quickjs 解内联挑战后重放
+            if waf.is_challenge(resp.status_code, resp.text):
+                log.warning("WAF 521 challenge on %s, solving", url)
                 if waf.solve(url, resp.text):
+                    waf.apply_cookie(client, url)
+                    resp = await client.get(url)
+            # 创宇盾新版 412（WZWS）：混淆 VM 需完整 DOM，交给本机 Chrome headless
+            elif waf.is_wzws_challenge(resp.status_code, resp.text):
+                log.warning("WAF 412 challenge on %s, warming via Chrome", url)
+                waf.invalidate(url)
+                if await waf.solve_wzws(url, force=True):
+                    # 412 通行 token 常与单个 URL 绑定，cookie 重放未必放行；
+                    # 优先用浏览器渲染好的同一 URL 页面，一步到位。
+                    rendered = waf.take_chrome_html(url)
+                    if rendered:
+                        return rendered
+                    waf.apply_cookie(client, url)
+                    resp = await client.get(url)
+            # 人社部：200 但整页只有设置 EO_Bot_Ssid 的挑战 JS
+            elif waf.is_eo_challenge(resp.status_code, resp.text):
+                log.warning("EO bot challenge on %s, solving", url)
+                if waf.solve_eo(url, resp.text):
                     waf.apply_cookie(client, url)
                     resp = await client.get(url)
             resp.raise_for_status()
@@ -320,9 +358,11 @@ class Fetcher:
     def _parse_json_list(self, raw: str) -> list[ListItem]:
         """解析 JSON 接口列表。
 
-        兼容两种格式：
+        兼容四种格式：
         - 珠海 postmeta：{"articles": [{"title","url","publish_time": 时间戳}]}
         - 中国政府网静态列表：顶层数组 [{"TITLE","URL","DOCRELPUBTIME": "2026-11-07"}]
+        - 金融监管总局：{"data":{"rows":[{"docTitle","publishDate","docId"}]}}
+          这类接口不返回 URL，用 selector_config.url_template 按字段拼详情页地址。
         """
         import json
 
@@ -331,22 +371,29 @@ class Fetcher:
         except json.JSONDecodeError:
             log.warning("json list parse failed for %s", self.source.name)
             return []
+        payload = (data.get("data") if isinstance(data, dict) else None) or {}
         if isinstance(data, list):
             rows = data
         elif isinstance(data, dict):
             rows = (data.get("articles") or data.get("list")
-                    or (data.get("data") or {}).get("articles") or [])
+                    or payload.get("articles") or payload.get("rows") or [])
         else:
             rows = []
         items = []
         base = self.source.base_url or self.source.list_url
+        url_template = self.selectors.get("url_template") or ""
         for a in rows:
             if not isinstance(a, dict):
                 continue
-            title = _clean_title(str(a.get("title") or a.get("TITLE") or ""))
-            url = self._prefer_https(str(
-                a.get("url") or a.get("URL") or a.get("link") or a.get("linked_url") or ""
-            ).strip())
+            title = _clean_title(str(a.get("title") or a.get("TITLE")
+                                     or a.get("docTitle") or a.get("docSubtitle") or ""))
+            if url_template:
+                url = re.sub(r"\{(\w+)\}",
+                             lambda m: str(a.get(m.group(1)) or ""), url_template)
+            else:
+                url = str(a.get("url") or a.get("URL") or a.get("link")
+                          or a.get("linked_url") or "").strip()
+            url = self._prefer_https(url)
             if not title or not url or len(title) < 8:
                 continue
             # 政府网 JSON 里混有新华网/央视外链，只保留源站文章
@@ -354,7 +401,8 @@ class Fetcher:
                 continue
             pub = None
             ts = (a.get("publish_time") or a.get("DOCRELPUBTIME")
-                  or a.get("pubDate") or a.get("first_publish_time"))
+                  or a.get("pubDate") or a.get("first_publish_time")
+                  or a.get("publishDate"))
             if isinstance(ts, (int, float)) and ts > 10**12:
                 pub = datetime.fromtimestamp(ts / 1000)
             elif isinstance(ts, (int, float)) and ts > 10**9:
@@ -433,10 +481,45 @@ class Fetcher:
 
     # ---- 详情页 ----
     async def fetch_detail(self, url: str) -> Detail:
+        # 金融监管总局的 ItemDetail.html 是 JS 空壳，正文在 SelectByDocId 接口里。
+        # 配置 detail_api_template 时把详情页 URL 里的 docId 映射到接口。
+        tmpl = self.selectors.get("detail_api_template") or ""
+        m = re.search(r"docId=(\d+)", url) if tmpl else None
         async with self._client() as client:
             await asyncio.sleep(config.FETCH_DELAY_SECONDS)
+            if m:
+                raw = await self.get(client, tmpl.format(docId=m.group(1)))
+                return self._extract_api_detail(raw)
             html = await self.get(client, url)
         return self._extract_detail(html)
+
+    @staticmethod
+    def _extract_api_detail(raw: str) -> Detail:
+        """解析 JSON 详情接口的 docClob（Word 粘贴的 HTML 片段）。"""
+        import json
+
+        try:
+            data = json.loads(raw)
+        except (ValueError, TypeError):
+            return Detail()
+        payload = data.get("data") if isinstance(data, dict) else None
+        if not isinstance(payload, dict):
+            return Detail()
+        pub = _parse_date(str(payload.get("publishDate") or ""))
+        body = payload.get("docClob") or payload.get("content") or ""
+        if not body:
+            return Detail(publish_time=pub)
+        soup = BeautifulSoup(body, "lxml")
+        for t in soup(["script", "style", "nav", "header", "footer", "iframe", "form"]):
+            t.decompose()
+        # Word 粘贴的 HTML 会把一句话拆进多个 <span>（「为 进一步完善 保险 公司」），
+        # 按空格合并而非逐行切分，再清掉汉字之间被插入的空格。
+        text = re.sub(r"\s+", " ", soup.get_text(" ")).strip()
+        text = re.sub(r"(?<=[\u4e00-\u9fff，。、；：（）])\s+"
+                      r"(?=[\u4e00-\u9fff，。、；：（）])", "", text)
+        text = re.sub(r"\s{2,}", " ", text).strip()
+        text = "\n".join(_clean_text_lines([text])) if text else ""
+        return Detail(content_text=text, content_html=body, publish_time=pub)
 
     def _extract_detail(self, html: str) -> Detail:
         soup = BeautifulSoup(html, "lxml")
@@ -445,8 +528,9 @@ class Fetcher:
             t.decompose()
 
         node = None
+        custom_content = self.selectors.get("content")
         for sel in (
-            self.selectors.get("content"),
+            custom_content,
             "#zoom", "#zoombox", "#ivs_content", ".TRS_Editor",
             "#zoomcon", ".zw",  # 南方新闻网建站平台（广东多数地市通用）
             ".content_article", ".article-content", ".article", ".main-txt",
@@ -456,7 +540,10 @@ class Fetcher:
             if not sel:
                 continue
             node = soup.select_one(sel)
-            if node and len(node.get_text(strip=True)) > 80:
+            # 显式配置的正文容器可信，任免公告之类 <80 字的短稿也要收；
+            # 内置兜底选择器仍要求 80 字，避免误把导航块当正文。
+            min_len = 20 if sel == custom_content else 80
+            if node and len(node.get_text(strip=True)) > min_len:
                 break
             node = None
         if node is None:

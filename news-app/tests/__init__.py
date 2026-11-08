@@ -1,8 +1,12 @@
 """测试环境隔离：绝不允许单测连到生产库 data/news.db。
 
-unittest discover 会先导入本包，再导入各测试模块，因此在这里统一完成：
+推荐从 news-app 目录运行 `python -m unittest discover`（不带 -s tests），
+此时本包会先于各测试模块导入：
 1. 先导入 notifier（它会 load_dotenv(override=True) 把 .env 灌进环境变量）；
 2. 再强制把 DATABASE_URL 指向临时库，之后所有 app.* 模块都绑定到临时库。
+
+注意：带 `-s tests` 运行时 unittest 把 tests 当普通目录，本包不会被导入，
+隔离会失效；app/db.py 里还有一层按进程命令行识别 unittest/pytest 的兜底。
 """
 import os
 import sys

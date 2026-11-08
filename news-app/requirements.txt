@@ -8,3 +8,4 @@ feedparser
 apscheduler
 python-dotenv
 quickjs
+websockets

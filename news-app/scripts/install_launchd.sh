@@ -12,9 +12,16 @@ LOG="$APP_DIR/data/launchd-install.log"
 DOMAIN="gui/$(id -u)"
 LABEL="com.jt.gov-news"
 
+# 本机健康检查必须绕开环境里的 HTTP_PROXY：否则代理返回的 502
+# 会被当成「服务已在运行」，端口明明空着却不再拉起兜底进程。
+health_code() {
+  curl -s --noproxy '*' -o /dev/null -w "%{http_code}" --max-time 2 \
+    http://127.0.0.1:8300/ 2>/dev/null || true
+}
+
 start_temp_server() {
   # 保底：确保 8300 上有服务在跑（脱离 launchctl 也能用）
-  if curl -s -o /dev/null --max-time 2 http://127.0.0.1:8300/; then
+  if [ "$(health_code)" = "200" ]; then
     echo "服务已在运行，无需兜底拉起"
     return
   fi
@@ -23,7 +30,7 @@ start_temp_server() {
   nohup .venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8300 \
     >> data/server.out.log 2>&1 &
   for i in 1 2 3 4 5 6 7 8; do
-    CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 2 http://127.0.0.1:8300/ 2>/dev/null || true)
+    CODE=$(health_code)
     [ "$CODE" = "200" ] && break
     sleep 1
   done
@@ -63,7 +70,7 @@ start_temp_server() {
   echo "4) 服务可用性"
   CODE=""
   for i in 1 2 3 4 5 6 7 8 9 10; do
-    CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 2 http://127.0.0.1:8300/ 2>/dev/null || true)
+    CODE=$(health_code)
     [ "$CODE" = "200" ] && break
     sleep 1
   done
