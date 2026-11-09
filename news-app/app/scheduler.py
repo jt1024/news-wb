@@ -111,8 +111,11 @@ async def generate_report_and_notify() -> dict:
     return await asyncio.to_thread(_generate_report_sync)
 
 
-async def daily_job():
+async def _run_pipeline():
     """每日全流程：抓取 → 循环解读 → 数据库热备 → 生成执行报告并推送。
+
+    本函数不带锁，由调用方用 round_guard.round_lock() 保证互斥：
+    Web 服务内的 APScheduler 与独立脚本 scripts/run_round.py 共用它。
 
     解读、备份、报告三段各自异常隔离：任何一段失败都不能阻断后续步骤。
     尤其是 AI 额度耗尽时，必须仍然发出告警和报告——否则用户反而收不到
@@ -163,6 +166,17 @@ async def daily_job():
         log.info("execution report generated: %s", str(res)[:300])
     except Exception:  # noqa: BLE001
         log.exception("execution report generation/notify failed (non-fatal)")
+
+
+async def daily_job():
+    """APScheduler 入口：加跨进程互斥锁，避免与独立兜底补跑重复执行。"""
+    from .round_guard import round_lock
+
+    with round_lock() as got:
+        if not got:
+            log.warning("已有其它进程在执行本轮抓取，APScheduler 跳过（避免重复）")
+            return
+        await _run_pipeline()
 
 
 def start_scheduler():

@@ -10,6 +10,7 @@
 | 库存 | 去重后稳态日增数十至上百篇（按发布日期统计），新文章当轮自动解读、常态待解读为 0 |
 | 自动化 | 抓取 → 解读 → 热备 → 执行报告 → 飞书推送（含手机可看的完整报告链接），全程无人值守 |
 | 周期性 | 每天 09:00 独立存活心跳；周一推上周周报、每月 1 日推上月月报（含 AI 综述） |
+| 兜底 | 每 30 分钟独立守护：服务掉线/轮次漏跑/报告缺失时自愈、补跑、补发并推飞书告警，不依赖 Web 服务进程 |
 | 运行环境 | 项目自带 Python 3.13 解释器与依赖，不依赖系统 Python 或 WorkBuddy |
 | 版本控制 | GitHub `jt1024/news-wb`，密钥与运行数据由 `.gitignore` 排除 |
 
@@ -25,7 +26,9 @@ launchctl kickstart -k "gui/$(id -u)/com.jt.gov-news"   # 平滑重启
 tail -f news-app/data/launchd.err.log      # 看运行日志
 ```
 
-首次注册（新机器或卸载过）：在访达里**双击** `news-app/scripts/run_launchd_install.command`，脚本会在 Aqua GUI 会话中安装 plist 并交接进程。注意脚本内含开发机绝对路径，换机器需同步修改。
+首次注册（新机器或卸载过）：在访达里**双击** `news-app/scripts/run_launchd_install.command` 与 `news-app/scripts/run_watchdog_install.command`（两个都要），脚本会在 Aqua GUI 会话中安装 plist 并交接进程。注意脚本内含开发机绝对路径，换机器需同步修改。
+
+> 只注册服务不够：抓取与报告推送挂在服务进程内的调度器上，服务没起来就会静默不推。兜底守护是独立进程，服务掉线时仍会告警、补跑本轮并推送报告。
 
 ### 从零部署
 
@@ -35,7 +38,7 @@ runtime/python313/bin/python3 -m venv .venv   # 用项目自带解释器，或�
 .venv/bin/pip install -r requirements.txt
 cp .env.example .env                          # 必填：ADMIN_PASSWORD、AUTH_SECRET、AI_API_KEY、NOTIFY_*
 chmod 600 .env
-.venv/bin/python scripts/run_tests.py         # 100 个单测，0.2 秒
+.venv/bin/python scripts/run_tests.py         # 120 个单测，0.3 秒
 .venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8300
 ```
 
@@ -90,6 +93,7 @@ chmod 600 .env
   → JSON API + Web 前端（新闻流 / 趋势分析 / 管理后台）
   → 每轮收尾：数据库热备 → 执行报告 HTML+MD → 覆盖 latest.html → 飞书推送（带在线报告按钮）
 每日 09:00（独立进程）：存活自检 → 飞书心跳；周一/月初顺带生成并推送周报 / 月报
+每 30 分钟（独立守护）：服务/轮次/报告自检 → 异常则告警 + 自愈 + 独立补跑
 每轮 +10 分钟（平台自动化）：把 latest.html 发成活页新版本，固定链接内容自动更新
 ```
 
@@ -101,6 +105,7 @@ chmod 600 .env
 - **无正文豁免**：纯图片海报页、视频页、404 失效链接不入库，但登记到 `skipped_urls` 表抑制 30 天，避免每轮重复下载又重复报一条异常；到期自动重试。
 - **模型拒答终态化**：AI 返回 422 等确定性 4xx（多为内容审核拒答）时，重试无意义，直接把该篇 `status` 置为 `failed` 并保留原文与错误原因，`run_interpret` 不再反复捞取；执行报告的「待解读」只统计 `fetched`，不会每轮误报积压。需重试时把 `status` 改回 `fetched` 即可。
 - **定时**：APScheduler 单 cron 任务多时刻触发，`misfire_grace_time=3600, coalesce=True`（1 小时内可补跑，多次错过只补一次）。手动触发走后台按钮（异步任务 + 实时进度）。
+- **轮次互斥**：服务内调度与独立补跑共用 `data/round.lock`（`flock` 非阻塞），谁先抢到谁执行，另一方直接跳过，不会重复抓取或重复推送报告。
 - **源管理**：`app/crawler/sources.py` 种子 + 后台「新增源」表单，加源通常无需改代码。
 - **站点特例**：深圳站 TLS 国密握手失败时自动回退 curl；珠海列表为 JS 渲染，改走 `postmeta` JSON 接口；中国政府网要闻列表是 ajax 空壳，改读 400 条的静态 `YAOWENLIEBIAO.json`；工信部/住建部/能源局/医保局的栏目页是 CMS/Vue 空壳，用首页静态文章链接。
 
@@ -185,6 +190,24 @@ chmod 600 .env
 - 系统级 `~/Library/LaunchAgents/com.jt.gov-news-heartbeat.plist`，每天 09:00；注册用 `scripts/install_heartbeat.sh`，或在访达双击 `scripts/run_heartbeat_install.command`（IDE 会话内常因 GUI 域权限无法直接 bootstrap，双击可完成）。
 - WorkBuddy 定时自动化每天 09:00 兜底，plist 尚未加载时也能告警。
 
+### 兜底守护（服务掉线也不静默）
+
+起因：服务进程没常驻时，12:00 / 21:00 两轮连同飞书推送一起消失，而 09:00 心跳一天才跑一次，故障可能十几个小时无人知晓。`scripts/watchdog.py` 是**完全独立于 Web 服务**的进程，不 import `app.main`、不经过 8300 端口，只用标准库 + 只读 SQLite + `notifier`：
+
+| 检查 | 发现异常后的动作 |
+|---|---|
+| 8300 探活失败 | 红色告警；先 `launchctl kickstart`，未注册则拉起临时 uvicorn |
+| 应完成轮次（12:00 / 21:00 + 30 分钟宽限）没有抓取记录 | 红色告警；后台启动 `scripts/run_round.py` 独立跑完整一轮（抓取→解读→热备→报告→飞书），不依赖服务是否在线 |
+| 抓取跑了但报告没生成/没推送 | 红色告警；补跑 `execution_report.py --notify` |
+| 全部正常 | 只写 `data/watchdog.log`，不推消息；若之前报过故障，补一条绿色「已恢复」 |
+
+- **基线**：首次运行记录上线时刻，之前漏掉的历史轮次不追溯、不补跑，避免守护刚装好就翻旧账。
+- **去重**：同类故障 6 小时内只推一次（纯服务故障按类型固定，不因轮次切换绕过冷却）；同一轮次补跑 60 分钟内不重复启动；推送失败不标记冷却，下轮继续重试。
+- **互斥**：`data/round.lock` 保证独立补跑与服务内 APScheduler 不会同时抓同一轮；`data/watchdog.lock` 保证 launchd 单次实例与常驻 loop 不并发。
+- **注册**：`scripts/install_watchdog.sh` 生成 `~/Library/LaunchAgents/com.jt.gov-news-watchdog.plist`（`StartInterval=1800` + 登录即自检）。IDE 会话内 `launchctl bootstrap` 常被系统拒绝，脚本会退化为 `--loop` 常驻进程；**要长期可靠，请在访达双击 `scripts/run_watchdog_install.command`**，或重新登录让 macOS 自动加载 plist。
+- **可调项**（`.env`）：`WATCHDOG_INTERVAL`（loop 间隔秒，1800）、`WATCHDOG_GRACE_MIN`（宽限，30）、`WATCHDOG_ALERT_COOLDOWN_HOURS`（6）、`WATCHDOG_RETRY_MIN`（60）、`WATCHDOG_AUTO_RECOVER`、`WATCHDOG_AUTO_RUN`（默认 1，置 0 只告警不自动处置）。
+- 自检不打扰：`.venv/bin/python scripts/watchdog.py --dry-run`（只检查并建立基线，不推送、不自愈、不补跑）。
+
 ### 周报与月报
 
 `app/period_report.py` + `scripts/period_report.py`：统计上一完整周 / 月的发布量、日均、活跃地市、国家部委新闻量、主题热度、上升信号、代表文章、抓取健康度，调用 AI 生成约 200 字政策走向综述，产出 HTML + Markdown 到 `data/reports/`（后台报告列表自动包含），并推飞书摘要。
@@ -229,7 +252,7 @@ P2 深化（`app/trends_extra.py`）：
 # 或：.venv/bin/python -m unittest discover -s tests -t . -v
 ```
 
-标准库 `unittest`，100 个用例、约 0.2 秒，覆盖标题清洗、同站过滤（含 `gov.cn` 公共后缀）、列表解析、JSON 列表与 URL/meta 日期兜底、三类 WAF 挑战识别与 cookie 求解、金融监管总局 JSON 接口与公文正文清洗、三层去重（真实 SQL，含层级隔离）、报告轮次聚合、cron 解析、飞书签名与推送降级、认证密钥隔离、无正文豁免生命周期，以及 P2 的政策阶段识别、政策链与地市矩阵（独立临时库）、周期窗口与 AI 降级、固定链接产出、飞书卡片按钮链接。
+标准库 `unittest`，120 个用例、约 0.3 秒，覆盖标题清洗、同站过滤（含 `gov.cn` 公共后缀）、列表解析、JSON 列表与 URL/meta 日期兜底、三类 WAF 挑战识别与 cookie 求解、金融监管总局 JSON 接口与公文正文清洗、三层去重（真实 SQL，含层级隔离）、报告轮次聚合、cron 解析、飞书签名与推送降级、认证密钥隔离、无正文豁免生命周期，以及 P2 的政策阶段识别、政策链与地市矩阵（独立临时库）、周期窗口与 AI 降级、固定链接产出、飞书卡片按钮链接，以及兜底守护的轮次判定、基线不追溯、告警冷却/补跑节流与跨进程互斥锁。
 
 **测试库隔离有两层，缺一不可**：`tests/__init__.py` 把 `DATABASE_URL` 强制指向临时库；`app/db.py` 再按进程命令行识别 unittest/pytest，发现仍指向 `news.db` 时自动切到临时库。原因是 `python -m unittest discover -s tests`（不带 `-t .`）不会导入 `tests` 包，包内隔离会失效，测试里的 `delete()` 会清空生产表——务必用 `scripts/run_tests.py` 或带 `-t .` 的 discover 命令。
 
@@ -243,6 +266,9 @@ P2 深化（`app/trends_extra.py`）：
 | `scripts/period_report.py --period weekly --notify` | 生成上一完整周/月报告并推送（AI 综述，失败自动降级） |
 | `scripts/heartbeat.py --dry-run --no-period` | 09:00 存活自检（不推送、不触发周期报告） |
 | `scripts/install_heartbeat.sh` | 注册 09:00 心跳 LaunchAgent（配合双击 `run_heartbeat_install.command`） |
+| `scripts/watchdog.py --dry-run` | 兜底守护单次自检（不推送、不自愈、不补跑） |
+| `scripts/run_round.py` | 独立跑完整一轮抓取并推送报告（不启动 Web 服务） |
+| `scripts/install_watchdog.sh` | 注册每 30 分钟兜底守护（配合双击 `run_watchdog_install.command`） |
 | `scripts/interpret_backlog.py 10 2` | 消化待解读积压（批大小、间隔秒） |
 | `scripts/discover_sources.py` | 自动探测地市站点列表页 |
 | `scripts/audit_sources.py` | 全源体检：存量噪音扫描 + 逐源实时重抓验证 |
