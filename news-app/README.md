@@ -204,7 +204,7 @@ chmod 600 .env
 - **基线**：首次运行记录上线时刻，之前漏掉的历史轮次不追溯、不补跑，避免守护刚装好就翻旧账。
 - **去重**：同类故障 6 小时内只推一次（纯服务故障按类型固定，不因轮次切换绕过冷却）；同一轮次补跑 60 分钟内不重复启动；推送失败不标记冷却，下轮继续重试。
 - **互斥**：`data/round.lock` 保证独立补跑与服务内 APScheduler 不会同时抓同一轮；`data/watchdog.lock` 保证 launchd 单次实例与常驻 loop 不并发。
-- **注册**：`scripts/install_watchdog.sh` 生成 `~/Library/LaunchAgents/com.jt.gov-news-watchdog.plist`（`StartInterval=1800` + 登录即自检）。IDE 会话内 `launchctl bootstrap` 常被系统拒绝，脚本会退化为 `--loop` 常驻进程；**要长期可靠，请在访达双击 `scripts/run_watchdog_install.command`**，或重新登录让 macOS 自动加载 plist。
+- **注册**：`scripts/install_watchdog.sh` 生成 `~/Library/LaunchAgents/com.jt.gov-news-watchdog.plist`（`StartInterval=1800`，与已验证可运行的 09:00 心跳同构）。**刻意不用 `RunAtLoad` / `KeepAlive`**：注册瞬间 spawn 在部分 GUI 域会留下 `EX_CONFIG(78)`，导致「注册成功但拉不起来」；定时触发则正常。安装脚本会 `kickstart` 实跑一次并核对 `runs` / 退出码，只有确认能跑才停掉兜底进程——避免「看似成功、实际无人守护」的空窗。IDE 会话内 `launchctl bootstrap` 常被系统拒绝（`Bootstrap failed: 5`），此时脚本保留 / 启动独立 `--loop` 常驻进程兜底；**要长期可靠，请在访达双击 `scripts/run_watchdog_install.command`**，或重新登录让 macOS 自动加载 plist。
 - **可调项**（`.env`）：`WATCHDOG_INTERVAL`（loop 间隔秒，1800）、`WATCHDOG_GRACE_MIN`（宽限，30）、`WATCHDOG_ALERT_COOLDOWN_HOURS`（6）、`WATCHDOG_RETRY_MIN`（60）、`WATCHDOG_AUTO_RECOVER`、`WATCHDOG_AUTO_RUN`（默认 1，置 0 只告警不自动处置）。
 - 自检不打扰：`.venv/bin/python scripts/watchdog.py --dry-run`（只检查并建立基线，不推送、不自愈、不补跑）。
 

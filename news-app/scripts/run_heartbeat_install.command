@@ -3,5 +3,5 @@
 cd "$(dirname "$0")/.." || exit 1
 /bin/zsh scripts/install_heartbeat.sh
 echo ""
-echo "按回车键关闭窗口..."
-read -r _
+echo "安装日志：/Users/jt/Desktop/CC/news/news-app/data/heartbeat-install.log"
+echo "窗口可关闭（心跳由 launchd 独立运行，不依赖本窗口）。"

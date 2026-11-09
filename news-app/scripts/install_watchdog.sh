@@ -1,8 +1,12 @@
 #!/bin/zsh
-# 注册「独立于 Web 服务的兜底守护」LaunchAgent：每 30 分钟自检一次。
+# 注册「独立于 Web 服务的兜底守护」LaunchAgent：常驻进程每 30 分钟自检一次。
 #
 # 与 09:00 心跳的区别：心跳只报状态，守护会自愈服务、补跑漏掉的抓取轮次、
 # 补发报告，因此服务整个挂掉时也不会静默不推送。
+#
+# 结构与已验证可运行的 heartbeat 保持一致：StartInterval + RunAtLoad=false。
+# 不用 RunAtLoad/KeepAlive：注册瞬间 spawn 在这个 GUI 域会留下 EX_CONFIG(78)，
+# 而定时触发的 job 已被实测能正常拉起并推送。注册后由脚本立即手动自检一次。
 #
 # 注意：IDE/WorkBuddy 内嵌会话里 launchctl 写入 GUI domain 常被系统拒绝
 # （Bootstrap failed: 5）。此时脚本会启动一个独立的 --loop 常驻进程兜底；
@@ -55,7 +59,7 @@ start_loop() {
   </array>
   <key>WorkingDirectory</key><string>$APP_DIR</string>
   <key>StartInterval</key><integer>1800</integer>
-  <key>RunAtLoad</key><true/>
+  <key>RunAtLoad</key><false/>
   <key>StandardOutPath</key><string>$APP_DIR/data/watchdog.out.log</string>
   <key>StandardErrorPath</key><string>$APP_DIR/data/watchdog.err.log</string>
 </dict>
@@ -63,16 +67,31 @@ start_loop() {
 EOF
   plutil -lint "$PLIST" || { echo "plist 校验失败"; exit 1; }
 
-  echo "1) 注册 LaunchAgent（每 30 分钟 + 登录时立即自检）"
+  echo "1) 注册 LaunchAgent（每 30 分钟定时自检）"
   launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null || true
-  if launchctl bootstrap "$DOMAIN" "$PLIST"; then
-    echo "   注册成功，由 launchd 托管"
-    launchctl enable "$DOMAIN/$LABEL" 2>/dev/null || true
+  REGISTERED=0
+  if launchctl bootstrap "$DOMAIN" "$PLIST" 2>/dev/null; then
+    # 周期型 job 空闲时 state=not running，不能靠 state 判断。必须真的
+    # kickstart 一次并确认它跑完且退出码不是 78（EX_CONFIG 表示注册了
+    # 却拉不起来），否则停掉 --loop 兜底会造成「看似成功、实则无人守护」。
+    if launchctl print "$DOMAIN/$LABEL" >/dev/null 2>&1; then
+      launchctl kickstart "$DOMAIN/$LABEL" >/dev/null 2>&1
+      sleep 3
+      STATUS=$(launchctl print "$DOMAIN/$LABEL" 2>/dev/null)
+      if echo "$STATUS" | grep -q "runs = [1-9]" \
+         && ! echo "$STATUS" | grep -q "EX_CONFIG"; then
+        REGISTERED=1
+      fi
+    fi
+  fi
+  launchctl enable "$DOMAIN/$LABEL" 2>/dev/null || true
+  if [ "$REGISTERED" = 1 ]; then
+    echo "   注册成功并已实跑验证（launchd 每 30 分钟拉起）"
     stop_loop
   else
-    echo "   当前会话无法写入 GUI launchd（IDE 内常见限制）"
+    echo "   服务未进入持久 GUI 域（bootstrap 可能落在临时会话）"
     echo "   plist 已就位且为 enabled，下次登录/重启由 macOS 自动加载"
-    echo "   本次启动常驻进程兜底"
+    echo "   本次保留 / 启动常驻进程兜底，避免守护空窗"
     start_loop
   fi
 

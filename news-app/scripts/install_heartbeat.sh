@@ -35,13 +35,21 @@ EOF
 
   echo "1) 注册 LaunchAgent"
   launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null || true
-  if launchctl bootstrap "$DOMAIN" "$PLIST"; then
-    echo "   注册成功"
-    launchctl enable "$DOMAIN/$LABEL" 2>/dev/null || true
+  REGISTERED=0
+  if launchctl bootstrap "$DOMAIN" "$PLIST" 2>/dev/null; then
+    # 只信返回码会把「临时会话注册」误报成成功；必须用 print 复核服务
+    # 是否真的留在持久 GUI 域。
+    if launchctl print "$DOMAIN/$LABEL" >/dev/null 2>&1; then
+      REGISTERED=1
+    fi
+  fi
+  launchctl enable "$DOMAIN/$LABEL" 2>/dev/null || true
+  if [ "$REGISTERED" = 1 ]; then
+    echo "   注册成功并已验证（launchd 托管，每天 09:00）"
   else
-    echo "   当前会话无法写入 GUI launchd（IDE 内常见限制）"
+    echo "   服务未进入持久 GUI 域（bootstrap 可能落在临时会话）"
     echo "   plist 已就位且为 enabled，下次登录/重启由 macOS 自动加载"
-    echo "   也可在终端里双击 scripts/run_heartbeat_install.command 完成注册"
+    echo "   也可在访达双击 scripts/run_heartbeat_install.command 完成注册"
   fi
 
   echo "2) 注册状态"

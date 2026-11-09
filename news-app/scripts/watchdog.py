@@ -18,8 +18,10 @@
 
 用法：
     .venv/bin/python scripts/watchdog.py --dry-run     # 只检查不推送/不自愈
-    .venv/bin/python scripts/watchdog.py               # 单次检查（launchd 用）
+    .venv/bin/python scripts/watchdog.py               # 单次检查
     .venv/bin/python scripts/watchdog.py --loop        # 常驻，每 30 分钟自检
+    .venv/bin/python scripts/watchdog.py --loop --no-pid-file
+                                                       # launchd KeepAlive 托管用
 """
 from __future__ import annotations
 
@@ -288,6 +290,8 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--dry-run", action="store_true", help="只检查，不推送/不自愈/不补跑")
     ap.add_argument("--loop", action="store_true", help="常驻循环自检")
+    ap.add_argument("--no-pid-file", action="store_true",
+                    help="launchd KeepAlive 托管时不写 pid 文件，避免与安装脚本兜底进程混淆")
     ap.add_argument("--interval", type=int, default=env_int("WATCHDOG_INTERVAL", 1800),
                     help="loop 模式的自检间隔秒数")
     ap.add_argument("--no-recover", action="store_true", help="不自动拉起服务")
@@ -301,8 +305,9 @@ def main() -> int:
         return check_once(dry_run=args.dry_run, auto_recover=auto_recover,
                           auto_run=auto_run)
 
-    PID_FILE.write_text(str(os.getpid()), encoding="utf-8")
-    atexit.register(lambda: PID_FILE.unlink(missing_ok=True))
+    if not args.no_pid_file:
+        PID_FILE.write_text(str(os.getpid()), encoding="utf-8")
+        atexit.register(lambda: PID_FILE.unlink(missing_ok=True))
     log_line(f"常驻守护启动 PID={os.getpid()} interval={args.interval}s")
     while True:
         try:
