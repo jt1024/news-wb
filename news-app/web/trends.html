@@ -8,54 +8,183 @@
 <script src="https://cdn.bootcdn.net/ajax/libs/echarts/5.5.0/echarts.min.js"></script>
 <script>window.echarts || document.write('<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"><\/script>')</script>
 <style>
-  .page { max-width: 1100px; margin: var(--sp-5) auto 0; padding: 0 var(--sp-6) 64px; }
-  .toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: var(--sp-4); flex-wrap: wrap; }
-  .toolbar .hint { font-size: 12.5px; color: var(--text-3); }
-  .chart-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-4); }
-  .chart-card { background: var(--bg-card); border: 1px solid var(--border-2); border-radius: var(--r-lg); padding: var(--sp-5); }
-  .chart-card h2 {
-    display: flex; align-items: center; gap: 8px;
-    margin: 0 0 var(--sp-3); font-size: 15px; font-weight: 600;
+  /* 本页专属：数据看板布局。颜色一律取自 ui.css 设计令牌 */
+  .page { max-width: 1280px; margin: 0 auto; padding: var(--sp-6) var(--sp-6) 64px; }
+
+  /* ---- 页头 ---- */
+  .crumb { font-size: 12px; color: var(--text-3); margin-bottom: 10px; }
+  .crumb a { color: var(--text-3); }
+  .crumb a:hover { color: var(--brand-600); }
+  .crumb b { color: var(--text-2); font-weight: 500; }
+  .page-head { display: flex; align-items: flex-start; gap: var(--sp-4); flex-wrap: wrap; margin-bottom: var(--sp-5); }
+  .page-title h1 { margin: 0; font-size: 24px; line-height: 1.4; font-weight: 650; letter-spacing: .3px; display: flex; align-items: center; gap: 10px; }
+  .page-title h1 .tag-ai { font-size: 11px; font-weight: 500; letter-spacing: 0; color: var(--brand-600); background: var(--brand-050); border: 1px solid var(--brand-100); border-radius: 999px; padding: 2px 10px; }
+  .page-title p { margin: 6px 0 0; font-size: 13px; color: var(--text-3); line-height: 1.7; max-width: 760px; }
+  .page-head-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding-top: 20px; }
+  .updated { font-size: 12px; color: var(--text-3); font-variant-numeric: tabular-nums; margin-right: 4px; }
+  .site-nav a.active { color: var(--brand-600); background: var(--brand-050); font-weight: 600; }
+
+  /* ---- 筛选条 ---- */
+  .filter-panel {
+    display: flex; align-items: center; gap: var(--sp-5); flex-wrap: wrap;
+    background: var(--bg-card); border: 1px solid var(--border-2);
+    border-radius: var(--r-lg); padding: 12px 18px; margin-bottom: var(--sp-6);
   }
-  .chart-card h2::before { content: ""; width: 4px; height: 15px; border-radius: 2px; background: var(--brand-600); }
-  .chart { width: 100%; height: 300px; }
-  .chart-card.wide { grid-column: 1 / -1; }
-  /* 上升话题列表 */
-  .rise-item { display: flex; align-items: center; gap: 12px; padding: 10px 4px; border-bottom: 1px solid var(--border-2); font-size: 13.5px; }
-  .rise-item:last-child { border-bottom: 0; }
-  .rise-rank { flex: none; width: 22px; height: 22px; border-radius: 6px; background: #F2F3F5; color: var(--text-2);
-               font-size: 12px; display: flex; align-items: center; justify-content: center; }
-  .rise-item:nth-child(1) .rise-rank { background: var(--brand-100); color: var(--brand-600); font-weight: 600; }
-  .rise-tag { font-weight: 600; min-width: 90px; }
-  .rise-desc { color: var(--text-3); font-size: 12.5px; flex: 1; }
-  .rise-delta { font-weight: 600; color: var(--ok); font-variant-numeric: tabular-nums; }
-  .rise-delta.down { color: var(--text-3); }
-  .kpi-row { display: flex; gap: var(--sp-3); margin-bottom: var(--sp-4); }
-  .kpi { flex: 1; background: var(--bg-card); border: 1px solid var(--border-2); border-radius: var(--r-md); padding: 14px 18px; }
-  .kpi b { display: block; font-size: 24px; line-height: 1.3; font-variant-numeric: tabular-nums; }
-  .kpi span { font-size: 12px; color: var(--text-3); }
-  /* 政策信号链 */
-  .stage-summary { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: var(--sp-4); }
-  .stage-summary span { font-size: 12px; color: var(--text-2); background: #F7F8FA; border: 1px solid var(--border-2);
-                        border-radius: var(--r-sm); padding: 4px 10px; font-variant-numeric: tabular-nums; }
+  .filter-group { display: flex; align-items: center; gap: 10px; }
+  .filter-label { font-size: 12px; color: var(--text-3); white-space: nowrap; }
+  .filter-divider { width: 1px; height: 22px; background: var(--border-1); }
+  .filter-note { margin-left: auto; font-size: 12px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+  .seg { display: inline-flex; background: var(--bg-hover); border: 1px solid var(--border-2); border-radius: var(--r-md); padding: 2px; gap: 2px; }
+  .seg button {
+    border: 0; background: transparent; color: var(--text-2); font: inherit; font-size: 12.5px;
+    padding: 5px 12px; border-radius: 6px; cursor: pointer;
+    transition: background .15s, color .15s, box-shadow .15s;
+  }
+  .seg button:hover { color: var(--text-1); }
+  .seg button[aria-pressed="true"] { background: var(--bg-card); color: var(--brand-600); font-weight: 600; box-shadow: 0 1px 3px rgba(31, 35, 41, .10); }
+
+  /* ---- 章节 ---- */
+  .section { margin-bottom: var(--sp-8); }
+  .section-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: var(--sp-4); padding-bottom: 10px; border-bottom: 1px solid var(--border-1); }
+  .sec-no { font-size: 11px; font-weight: 700; color: var(--brand-600); letter-spacing: 1px; font-variant-numeric: tabular-nums; }
+  .section-head h2 { margin: 0; font-size: 16px; font-weight: 600; }
+  .section-head p { margin: 0; font-size: 12px; color: var(--text-3); }
+
+  /* ---- KPI ---- */
+  .kpi-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--sp-3); }
+  .kpi-card { background: var(--bg-card); border: 1px solid var(--border-2); border-radius: var(--r-lg); padding: 16px 18px 14px; min-height: 128px; position: relative; overflow: hidden; }
+  .kpi-top { display: flex; align-items: center; gap: 8px; color: var(--text-3); font-size: 12px; }
+  .kpi-icon { width: 26px; height: 26px; border-radius: 7px; background: var(--bg-hover); color: var(--link); display: flex; align-items: center; justify-content: center; flex: none; }
+  .kpi-icon svg { width: 15px; height: 15px; }
+  .kpi-value { margin-top: 10px; font-size: 28px; line-height: 1.15; font-weight: 650; font-variant-numeric: tabular-nums; letter-spacing: .5px; }
+  .kpi-value small { font-size: 12px; font-weight: 400; color: var(--text-3); margin-left: 5px; letter-spacing: 0; }
+  .kpi-sub { margin-top: 8px; font-size: 11.5px; color: var(--text-3); display: flex; align-items: center; gap: 6px; min-height: 18px; position: relative; z-index: 1; }
+  .kpi-delta { display: inline-flex; align-items: center; gap: 2px; padding: 1px 6px; border-radius: 5px; font-size: 11px; font-weight: 600; background: var(--brand-050); color: var(--brand-600); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .kpi-delta.down { background: var(--bg-hover); color: var(--text-2); }
+  .kpi-spark { position: absolute; right: 12px; top: 14px; width: 78px; height: 28px; opacity: .85; }
+
+  /* ---- 栅格与卡片 ---- */
+  .grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: var(--sp-4); }
+  .col-12 { grid-column: span 12; }
+  .col-7 { grid-column: span 7; }
+  .col-6 { grid-column: span 6; }
+  .col-5 { grid-column: span 5; }
+  .panel { background: var(--bg-card); border: 1px solid var(--border-2); border-radius: var(--r-lg); padding: 18px 20px 20px; min-width: 0; }
+  .card-head { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 12px; }
+  .card-head h3 { margin: 0; font-size: 14.5px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+  .card-head h3::before { content: ""; width: 3px; height: 14px; border-radius: 2px; background: var(--brand-600); }
+  .card-head p { margin: 4px 0 0 11px; font-size: 11.5px; color: var(--text-3); line-height: 1.6; }
+  .card-tools { margin-left: auto; display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+  .tool-btn { border: 1px solid var(--border-1); background: var(--bg-card); color: var(--text-2); font: inherit; font-size: 12px; padding: 5px 10px; border-radius: var(--r-sm); cursor: pointer; transition: .15s; }
+  .tool-btn:hover { border-color: #C9CDD4; background: var(--bg-hover); color: var(--text-1); }
+  .legend-inline { display: flex; gap: 12px; align-items: center; font-size: 11.5px; color: var(--text-3); }
+  .legend-inline i { display: inline-block; width: 12px; height: 3px; border-radius: 2px; margin-right: 5px; vertical-align: middle; }
+  .chart { width: 100%; min-height: 220px; position: relative; }
+  .chart-scroll { overflow-x: auto; }
+  .scroll-hint { display: none; }
+  .chart-lg { height: 320px; }
+  .chart-md { height: 276px; }
+  .chart-sm { height: 360px; }
+  #c-city { height: 394px; }
+
+  /* ---- 主题 chips ---- */
+  .topic-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 10px; }
+  .topic-chip { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--border-1); background: var(--bg-card); color: var(--text-2); border-radius: 999px; padding: 3px 10px; font: inherit; font-size: 11.5px; cursor: pointer; transition: .15s; }
+  .topic-chip i { width: 8px; height: 8px; border-radius: 50%; background: var(--chart-8); opacity: .35; }
+  .topic-chip span { color: var(--text-3); font-variant-numeric: tabular-nums; font-size: 11px; }
+  .topic-chip[aria-pressed="true"] { border-color: var(--chart-axis); background: var(--bg-hover); color: var(--text-1); font-weight: 600; }
+  .topic-chip[aria-pressed="true"] i { opacity: 1; }
+  .topic-chip:hover { border-color: #C9CDD4; }
+
+  /* ---- 环形图 + 自定义图例 ---- */
+  .donut-wrap { display: flex; align-items: center; gap: 6px; }
+  .donut-wrap .chart { flex: 0 0 50%; height: 240px; min-height: 240px; }
+  .type-legend { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  .type-row { display: grid; grid-template-columns: 10px 1fr auto auto; align-items: center; gap: 8px; padding: 6px 8px; border-radius: var(--r-sm); transition: background .15s; }
+  .type-row:hover { background: var(--bg-hover); }
+  .type-row .dot { width: 8px; height: 8px; border-radius: 3px; }
+  .type-row .nm { font-size: 12px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .type-row .vl { font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .type-row .pc { font-size: 11px; color: var(--text-3); font-variant-numeric: tabular-nums; width: 40px; text-align: right; }
+  .type-bar { grid-column: 2 / -1; height: 3px; border-radius: 2px; background: var(--bg-hover); overflow: hidden; margin-top: -2px; }
+  .type-bar i { display: block; height: 100%; border-radius: 2px; min-width: 3px; }
+  .type-insight { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border-2); font-size: 12px; color: var(--text-3); line-height: 1.7; }
+  .type-insight b { color: var(--text-2); font-weight: 600; }
+
+  /* ---- 洞察摘要 / 政策信号 ---- */
+  .insight-strip { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 12px; background: var(--brand-050); border: 1px solid var(--brand-100); border-radius: var(--r-md); font-size: 12px; color: var(--text-2); margin-bottom: 10px; }
+  .insight-strip b { font-size: 11.5px; color: var(--brand-600); }
+  .insight-strip .rise-badge { background: var(--bg-card); border: 1px solid var(--border-2); border-radius: 999px; padding: 1px 9px; font-variant-numeric: tabular-nums; }
+  .stage-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 16px; }
+  .stage-stat { border: 1px solid var(--border-2); border-radius: var(--r-md); padding: 10px 12px; background: var(--bg-hover); }
+  .stage-stat b { display: block; font-size: 18px; line-height: 1.3; font-variant-numeric: tabular-nums; }
+  .stage-stat span { font-size: 11.5px; color: var(--text-3); }
+  .stage-stat .bar { height: 3px; background: var(--border-1); border-radius: 2px; margin-top: 8px; overflow: hidden; }
+  .stage-stat .bar i { display: block; height: 100%; background: var(--brand-600); border-radius: 2px; }
   .chain { border: 1px solid var(--border-2); border-radius: var(--r-md); padding: 12px 14px; margin-bottom: 10px; }
-  .chain:last-child { margin-bottom: 0; }
+  .chain:last-of-type { margin-bottom: 12px; }
   .chain-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-  .chain-tag { font-weight: 600; font-size: 14px; min-width: 84px; }
-  .chain-meta { font-size: 12px; color: var(--text-3); margin-left: auto; font-variant-numeric: tabular-nums; }
+  .chain-tag { font-weight: 600; font-size: 13.5px; }
+  .chain-meta { font-size: 11.5px; color: var(--text-3); margin-left: auto; font-variant-numeric: tabular-nums; }
+  .coverage { display: inline-flex; gap: 3px; }
+  .coverage i { width: 16px; height: 4px; border-radius: 2px; background: var(--border-1); }
+  .coverage i.on { background: var(--brand-600); }
   .stage-flow { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; margin-top: 10px; }
-  .stage-chip { font-size: 12px; padding: 3px 9px; border-radius: 12px; border: 1px solid var(--border-2);
-                color: var(--text-3); background: #FAFAFB; white-space: nowrap; }
-  .stage-chip.on { color: #fff; background: var(--brand-600); border-color: var(--brand-600); }
+  .stage-chip { font-size: 11.5px; padding: 3px 9px; border-radius: 12px; border: 1px solid var(--border-2); color: var(--text-3); background: var(--bg-hover); white-space: nowrap; }
+  .stage-chip.on { color: var(--brand-600); background: var(--brand-050); border-color: var(--brand-100); font-weight: 600; }
+  .stage-chip.on.current { color: #fff; background: var(--brand-600); border-color: var(--brand-600); }
   .stage-arrow { color: var(--text-3); font-size: 11px; }
   .chain details { margin-top: 10px; }
-  .chain summary { font-size: 12px; color: var(--brand-600); cursor: pointer; }
+  .chain summary { font-size: 12px; color: var(--link); cursor: pointer; }
   .stage-group { margin-top: 8px; font-size: 12.5px; }
   .stage-group b { color: var(--text-2); font-weight: 600; }
   .stage-group a { color: var(--text-1); text-decoration: none; display: block; padding: 3px 0 3px 10px; }
   .stage-group a:hover { color: var(--brand-600); }
   .stage-group .src { color: var(--text-3); font-size: 11.5px; margin-right: 8px; }
-  @media (max-width: 860px) { .chart-grid { grid-template-columns: 1fr; } .kpi-row { flex-wrap: wrap; } .kpi { min-width: 45%; } .chain-meta { margin-left: 0; } }
+
+  /* ---- 状态 ---- */
+  .error-box { display: none; align-items: center; gap: 12px; background: var(--err-bg); border: 1px solid #F3C6C7; color: var(--err); border-radius: var(--r-lg); padding: 14px 18px; margin-bottom: var(--sp-5); font-size: 13px; }
+  .error-box.show { display: flex; }
+  .error-box .btn { margin-left: auto; }
+  .empty-banner { display: none; background: var(--info-bg); color: var(--link); border-radius: var(--r-md); padding: 10px 14px; font-size: 12.5px; margin-bottom: var(--sp-4); }
+  .empty-banner.show { display: block; }
+  .empty { text-align: center; color: var(--text-3); font-size: 13px; padding: 48px 0; }
+  .skeleton { position: relative; overflow: hidden; }
+  .skeleton::after { content: ""; position: absolute; inset: 0; border-radius: inherit; z-index: 2; background: linear-gradient(90deg, var(--bg-hover) 0%, #FBFCFD 50%, var(--bg-hover) 100%); background-size: 200% 100%; animation: sk 1.4s ease-in-out infinite; }
+  @keyframes sk { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+  .page-foot { border-top: 1px solid var(--border-1); padding-top: 16px; font-size: 11.5px; color: var(--text-3); line-height: 1.9; }
+
+  /* ---- 响应式 ---- */
+  @media (max-width: 1100px) {
+    .kpi-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .col-7, .col-6, .col-5 { grid-column: span 12; }
+  }
+  @media (max-width: 760px) {
+    .page { padding: var(--sp-4) var(--sp-4) 48px; }
+    .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .filter-panel { gap: 12px; }
+    .filter-divider { display: none; }
+    .filter-note { margin-left: 0; width: 100%; }
+    .page-head-actions { padding-top: 0; margin-left: 0; }
+    .section-head p { display: none; }
+    .stage-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .donut-wrap { flex-direction: column; align-items: stretch; }
+    .donut-wrap .chart { flex-basis: auto; width: 100%; height: 220px; min-height: 220px; }
+    .chart-scroll .chart { min-width: 640px; }
+    .scroll-hint { display: block; text-align: right; font-size: 11px; color: var(--text-3); margin-bottom: 6px; }
+    .card-head { flex-wrap: wrap; }
+    .card-tools { margin-left: 0; }
+    .page-title h1 { font-size: 20px; }
+  }
+  @media (max-width: 420px) {
+    .kpi-card { padding: 14px; }
+    .kpi-value { font-size: 24px; }
+    .kpi-spark { display: none; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .skeleton::after { animation: none; }
+    * { transition-duration: .01ms !important; }
+  }
 </style>
 </head>
 <body>
@@ -63,243 +192,760 @@
 <header class="site-header">
   <div class="brand">
     <span class="brand-mark">政</span>
-    <h1>政策走向分析</h1>
-    <span class="brand-sub">基于 AI 标签与解读数据</span>
+    <h1>政务新闻聚合平台</h1>
+    <span class="brand-sub">数据分析</span>
   </div>
   <nav class="site-nav">
-    <a href="/">返回新闻流</a>
+    <a href="/">新闻流</a>
+    <a href="/trends.html" class="active" aria-current="page">趋势分析</a>
     <a href="/admin">后台管理</a>
   </nav>
 </header>
 
 <main class="page">
-  <div class="toolbar">
-    <label style="font-size:13px;color:var(--text-2)">统计范围
-      <select id="days" style="margin-left:6px" onchange="loadTrends()">
-        <option value="7">近 7 天</option>
-        <option value="30" selected>近 30 天</option>
-        <option value="90">近 90 天</option>
-      </select>
-    </label>
-    <span class="hint" id="gen-at"></span>
-    <span class="hint">趋势基于 AI 自动打的主题标签聚合，标签质量随数据量增长而更准</span>
+  <div class="crumb"><a href="/">首页</a> / <span>数据分析</span> / <b>政策走向分析</b></div>
+  <div class="page-head">
+    <div class="page-title">
+      <h1>政策走向分析 <span class="tag-ai">AI 标签聚合</span></h1>
+      <p>按文章发布日期统计国家部委、省级与地市新闻的发布节奏、主题热度与政策阶段演进；主题由 AI 自动打标，数据量越大越稳定。</p>
+    </div>
+    <div class="page-head-actions">
+      <span class="updated" id="updated"></span>
+      <button class="btn" type="button" id="btn-refresh">刷新</button>
+      <button class="btn" type="button" id="btn-export" title="导出主趋势图为 PNG">导出图表</button>
+    </div>
   </div>
 
-  <div class="kpi-row" id="kpis"></div>
-
-  <div id="err" class="state" style="display:none">加载失败，请稍后重试</div>
-  <div id="charts" class="chart-grid" style="display:none">
-    <div class="chart-card wide"><h2>主题热度趋势</h2><div class="chart" id="c-topics"></div></div>
-    <div class="chart-card"><h2>每日发布量</h2><div class="chart" id="c-daily"></div></div>
-    <div class="chart-card"><h2>内容类型分布</h2><div class="chart" id="c-types"></div></div>
-    <div class="chart-card wide"><h2>各地市活跃度</h2><div class="chart" id="c-city" style="height:340px"></div></div>
-    <div class="chart-card wide"><h2>上升话题（近 7 天 vs 前 7 天）</h2><div id="rising"></div></div>
-    <div class="chart-card wide"><h2>政策信号串联</h2><div id="signals"></div></div>
-    <div class="chart-card wide"><h2>同一主题 · 各地市发声对比</h2><div class="chart" id="c-matrix" style="height:380px"></div></div>
+  <div class="filter-panel">
+    <div class="filter-group">
+      <span class="filter-label">统计范围</span>
+      <div class="seg" id="seg-days" role="group" aria-label="统计范围">
+        <button type="button" data-days="7" aria-pressed="false">近 7 天</button>
+        <button type="button" data-days="30" aria-pressed="true">近 30 天</button>
+        <button type="button" data-days="90" aria-pressed="false">近 90 天</button>
+      </div>
+    </div>
+    <span class="filter-divider" aria-hidden="true"></span>
+    <div class="filter-group">
+      <span class="filter-label">时间粒度</span>
+      <div class="seg" id="seg-grain" role="group" aria-label="时间粒度">
+        <button type="button" data-grain="day" aria-pressed="true">按日</button>
+        <button type="button" data-grain="week" aria-pressed="false">按周</button>
+      </div>
+    </div>
+    <span class="filter-note" id="filter-note">正在加载…</span>
   </div>
+
+  <div class="error-box" id="err" role="alert">
+    <span class="err-msg">数据加载失败</span>
+    <button class="btn" type="button" id="btn-retry">重新加载</button>
+  </div>
+  <div class="empty-banner" id="empty-banner">统计范围内暂无新闻，可切换更长的统计范围，或等待下一轮抓取完成后刷新。</div>
+
+  <div id="content">
+    <section class="section">
+      <div class="section-head"><span class="sec-no">01</span><h2>核心概览</h2><p>近 7 天与前 7 天对比，环比仅基于发布量</p></div>
+      <div class="kpi-grid" id="kpis">
+        <div class="kpi-card skeleton"></div><div class="kpi-card skeleton"></div>
+        <div class="kpi-card skeleton"></div><div class="kpi-card skeleton"></div>
+        <div class="kpi-card skeleton"></div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="section-head"><span class="sec-no">02</span><h2>发布趋势</h2><p>先看总量节奏，再看主题与内容结构</p></div>
+      <div class="grid">
+        <article class="panel col-12">
+          <div class="card-head">
+            <div><h3>每日发布量</h3><p id="volume-sub">按文章发布日期统计 · 含移动平均线</p></div>
+            <div class="card-tools">
+              <span class="legend-inline"><span><i style="background:var(--chart-1)"></i>发布量</span><span><i style="background:var(--chart-4)"></i>移动平均</span></span>
+            </div>
+          </div>
+          <div class="chart chart-lg skeleton" id="c-volume" role="img" aria-label="每日发布量趋势图"></div>
+        </article>
+
+        <article class="panel col-7">
+          <div class="card-head">
+            <div><h3>主题热度趋势</h3><p id="topics-sub">Top 8 主题每日声量 · 点击标签可对比，最多 5 条</p></div>
+            <div class="card-tools"><button class="tool-btn" type="button" id="btn-top4">仅看前 4</button></div>
+          </div>
+          <div class="topic-chips" id="topic-chips"></div>
+          <div class="chart chart-md skeleton" id="c-topics" role="img" aria-label="主题热度趋势图"></div>
+        </article>
+
+        <article class="panel col-5">
+          <div class="card-head"><div><h3>内容类型分布</h3><p>按 AI 判定的内容类型统计 · 中心为总量</p></div></div>
+          <div class="donut-wrap">
+            <div class="chart skeleton" id="c-types" role="img" aria-label="内容类型分布环形图"></div>
+            <div class="type-legend" id="type-legend"></div>
+          </div>
+          <div class="type-insight" id="type-insight"></div>
+        </article>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="section-head"><span class="sec-no">03</span><h2>结构与话题</h2><p>谁在发布、哪些主题正在升温</p></div>
+      <div class="grid">
+        <article class="panel col-6">
+          <div class="card-head"><div><h3>各地市活跃度 · Top 12</h3><p>仅统计地方新闻，国家部委单列不计入</p></div></div>
+          <div class="chart chart-sm skeleton" id="c-city" role="img" aria-label="各地市发布量排行"></div>
+        </article>
+        <article class="panel col-6">
+          <div class="card-head"><div><h3>上升话题</h3><p>近 7 天 vs 前 7 天 · 按增量排序</p></div></div>
+          <div class="insight-strip" id="rising-insight"></div>
+          <div class="chart chart-sm skeleton" id="c-rising" role="img" aria-label="上升话题对比图"></div>
+        </article>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="section-head"><span class="sec-no">04</span><h2>政策信号</h2><p>跨阶段政策链条与同主题地域发声对比</p></div>
+      <div class="grid">
+        <article class="panel col-12">
+          <div class="card-head"><div><h3>政策信号串联</h3><p>征求意见 → 政策解读 → 正式印发 → 贯彻落实</p></div></div>
+          <div id="signals"></div>
+        </article>
+        <article class="panel col-12">
+          <div class="card-head"><div><h3>同一主题 · 各地市发声对比</h3><p>Top 8 主题 × Top 10 地市，颜色越深篇数越多</p></div></div>
+          <div class="scroll-hint">左右滑动查看全部地市 →</div>
+          <div class="chart-scroll"><div class="chart chart-sm skeleton" id="c-matrix" role="img" aria-label="主题与地市交叉热力图"></div></div>
+        </article>
+      </div>
+    </section>
+  </div>
+
+  <footer class="page-foot">
+    数据口径：全部指标基于文章发布日期（publish_time）与 AI 标签聚合；主题热度为一篇文章可命中多个标签，因此各主题之和大于新闻总数。
+    国家级新闻的 region_city 为空，不计入地市排行与热力矩阵。图表支持鼠标悬停查看明细，主趋势图可用底部滑块拖拽或 Ctrl + 滚轮缩放。
+    末端日期若为 0，通常表示当天尚未完成抓取，下一轮任务后会自动补齐。
+  </footer>
 </main>
 
 <script>
 const TOKEN = localStorage.getItem("nb_token");
 if (!TOKEN) location.href = "/login.html";
 const H = {"Authorization": "Bearer " + TOKEN};
-const PALETTE = ["#C0181F","#2B6CB0","#2F7A45","#B0651A","#7C3AED","#0891B2","#DB2777","#65A30D"];
 
-let charts = [];
+/* ---------- 设计令牌与通用工具 ---------- */
+const cssVar = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const CHART = ["--chart-1","--chart-2","--chart-3","--chart-4","--chart-5","--chart-6","--chart-7","--chart-8"].map(cssVar);
+const C = {blue: CHART[0], red: CHART[1], green: CHART[2], orange: CHART[3],
+           grid: cssVar("--chart-grid"), axis: cssVar("--chart-axis"),
+           label: cssVar("--chart-label"), text: cssVar("--chart-text"),
+           text1: cssVar("--text-1"), text2: cssVar("--text-2"), font: cssVar("--font")};
+function rgba(hex, a) {
+  const h = (hex || "#000000").replace("#", "");
+  const s = h.length === 3 ? h.split("").map(x => x + x).join("") : h;
+  const n = parseInt(s, 16);
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
+}
+const fmt = n => Number(n || 0).toLocaleString("zh-CN");
+const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c =>
+  ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[c]);
+const pad2 = n => (n < 10 ? "0" : "") + n;
+const dateKey = dt => `${dt.getFullYear()}-${pad2(dt.getMonth() + 1)}-${pad2(dt.getDate())}`;
+const shortLabel = k => k.slice(5).replace("-", "/");
+const sum = arr => arr.reduce((a, b) => a + b, 0);
+const WEEK_CN = ["周日","周一","周二","周三","周四","周五","周六"];
+const weekday = k => WEEK_CN[new Date(k + "T00:00:00").getDay()];
 
-function makeChart(id) {
+let DATA = null;
+const qs = new URLSearchParams(location.search);
+const initDays = Number(qs.get("days"));
+const state = {
+  days: [7, 30, 90].includes(initDays) ? initDays : 30,
+  grain: qs.get("grain") === "week" ? "week" : "day",
+  topics: [],
+  showAllChains: false,
+  loading: false,
+};
+
+/* ---------- ECharts 生命周期：先可见再初始化 + 尺寸自适应 ---------- */
+const instances = new Map();
+let observer = null;
+function chartOf(id) {
   const el = document.getElementById(id);
-  const c = echarts.init(el);
-  charts.push(c);
+  let c = echarts.getInstanceByDom(el);
+  if (c) return c;
+  c = echarts.init(el, null, {renderer: "canvas"});
+  instances.set(id, c);
+  if (window.ResizeObserver) {
+    if (!observer) observer = new ResizeObserver(entries => {
+      entries.forEach(e => {
+        const inst = echarts.getInstanceByDom(e.target);
+        if (inst) inst.resize();
+      });
+    });
+    observer.observe(el);
+  }
   return c;
 }
-window.addEventListener("resize", () => charts.forEach(c => c.resize()));
+window.addEventListener("resize", () => instances.forEach(c => c.resize()));
+function setOption(id, option) { chartOf(id).setOption(option, {notMerge: true, lazyUpdate: false}); }
 
-async function loadTrends() {
-  document.getElementById("err").style.display = "none";
-  document.getElementById("charts").style.display = "none";
-  const days = document.getElementById("days").value;
-  const r = await fetch(`/api/trends?days=${days}`, {headers: H});
-  if (r.status === 401) { localStorage.removeItem("nb_token"); location.href = "/login.html"; return; }
-  if (!r.ok) { document.getElementById("err").style.display = ""; return; }
-  const d = await r.json();
-  document.getElementById("gen-at").textContent =
-    `共 ${d.total} 条 · 生成于 ${(d.generated_at || "").replace("T", " ")}`;
-  renderKpis(d);
-  renderTopics(d);
-  renderDaily(d);
-  renderTypes(d);
-  renderCity(d);
-  renderRising(d);
-  renderSignals(d);
-  renderMatrix(d);
-  document.getElementById("charts").style.display = "";
+function tip(trigger, formatter) {
+  return {
+    trigger, formatter, confine: true,
+    backgroundColor: "#FFFFFF", borderColor: C.axis, borderWidth: 1,
+    padding: [10, 12],
+    textStyle: {color: C.text2, fontSize: 12, lineHeight: 18},
+    extraCssText: `box-shadow:${cssVar("--shadow-hover")};border-radius:8px;`,
+    axisPointer: {
+      type: trigger === "axis" ? "line" : "shadow",
+      lineStyle: {color: C.axis, width: 1},
+      shadowStyle: {color: "rgba(31,35,41,.035)"},
+      label: {backgroundColor: C.text2, color: "#fff", fontSize: 11},
+    },
+  };
+}
+const catAxis = (data, opt) => Object.assign({
+  type: "category", data, boundaryGap: false,
+  axisLine: {lineStyle: {color: C.axis}},
+  axisTick: {show: false},
+  axisLabel: {color: C.label, fontSize: 11, hideOverlap: true, margin: 10},
+}, opt || {});
+// 时间轴刻度按密度抽稀，避免 90 天或窄屏时标签挤成一团
+const labelInterval = labels => Math.max(0, Math.ceil(labels.length / 10) - 1);
+const timeAxis = labels => catAxis(labels, {
+  axisLabel: {color: C.label, fontSize: 11, hideOverlap: true, margin: 10, interval: labelInterval(labels)},
+});
+const valAxis = (opt) => Object.assign({
+  type: "value", minInterval: 1,
+  axisLine: {show: false}, axisTick: {show: false},
+  axisLabel: {color: C.label, fontSize: 11},
+  splitLine: {lineStyle: {color: C.grid, width: 1}},
+}, opt || {});
+const tipRow = (p, value) => `<div style="display:flex;justify-content:space-between;gap:18px;line-height:20px">
+    <span>${p.marker}${esc(p.seriesName)}</span><b style="font-variant-numeric:tabular-nums;color:${C.text1}">${fmt(value)}</b></div>`;
+const tipHead = s => `<div style="font-weight:600;color:${C.text1};margin-bottom:6px">${s}</div>`;
+
+/* ---------- 时间轴：补齐无发布的日期，避免 x 轴稀疏/断裂 ---------- */
+function buildTimeline(d, days) {
+  const map = new Map((d.daily || []).map(x => [x.date, x.n]));
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const dates = [];
+  for (let i = days; i >= 0; i--) {
+    const dt = new Date(today); dt.setDate(today.getDate() - i);
+    dates.push(dateKey(dt));
+  }
+  return {dates, values: dates.map(k => map.get(k) || 0), map};
+}
+function weekGroups(dates) {
+  const groups = []; let cur = null;
+  dates.forEach((k, i) => {
+    const dt = new Date(k + "T00:00:00");
+    const monday = new Date(dt); monday.setDate(dt.getDate() - ((dt.getDay() + 6) % 7));
+    const key = dateKey(monday);
+    if (!cur || cur.key !== key) { cur = {key, label: shortLabel(key), indices: []}; groups.push(cur); }
+    cur.indices.push(i);
+  });
+  return groups;
+}
+function toGrain(values, dates) {
+  if (state.grain === "day") return {labels: dates.map(shortLabel), values: values.slice()};
+  const groups = weekGroups(dates);
+  return {
+    labels: groups.map(g => g.label),
+    values: groups.map(g => g.indices.reduce((a, i) => a + values[i], 0)),
+  };
+}
+function movingAverage(values, win) {
+  return values.map((_, i) => {
+    const part = values.slice(Math.max(0, i - win + 1), i + 1);
+    return Math.round(part.reduce((a, b) => a + b, 0) / part.length * 10) / 10;
+  });
 }
 
-function renderKpis(d) {
-  const sum = arr => arr.reduce((a, x) => a + x.n, 0);
-  const cities = d.city_totals.length, topics = d.topics.length;
-  const policies = (d.type_totals.find(t => t.type === "policy" || t.type === "interpretation") || {}).n || 0;
-  document.getElementById("kpis").innerHTML = `
-    <div class="kpi"><b>${d.total}</b><span>统计范围内新闻</span></div>
-    <div class="kpi"><b>${cities}</b><span>活跃地市</span></div>
-    <div class="kpi"><b>${d.national_total || 0}</b><span>国家部委新闻</span></div>
-    <div class="kpi"><b>${topics}</b><span>热门主题标签</span></div>
-    <div class="kpi"><b>${policies}</b><span>政策类内容</span></div>`;
+/* ---------- KPI ---------- */
+const ICONS = {
+  doc: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3h7l4 4v14H7z"/><path d="M14 3v5h4M9.5 12h6M9.5 16h6"/></svg>',
+  cal: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="16" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>',
+  org: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21h16M6 21V8l6-4 6 4v13M10 21v-6h4v6M9 11h.01M15 11h.01"/></svg>',
+  policy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h9l3 3v15H6z"/><path d="M9 9h6M9 13h6M9 17h4"/></svg>',
+  map: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s7-6.3 7-11a7 7 0 1 0-14 0c0 4.7 7 11 7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>',
+};
+function sparkline(values, color) {
+  const w = 92, h = 30, p = 2, max = Math.max(1, ...values);
+  const pts = values.map((v, i) =>
+    `${(p + i * (w - 2 * p) / Math.max(1, values.length - 1)).toFixed(1)},${(h - p - v / max * (h - 2 * p)).toFixed(1)}`);
+  return `<svg class="kpi-spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true">
+    <polygon points="${p},${h - p} ${pts.join(" ")} ${w - p},${h - p}" fill="${rgba(color, .12)}"></polygon>
+    <polyline points="${pts.join(" ")}" fill="none" stroke="${color}" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"></polyline></svg>`;
+}
+function renderKpis(d, tl) {
+  const recent = sum(tl.values.slice(-7));
+  const previous = sum(tl.values.slice(-14, -7));
+  const change = previous ? (recent - previous) / previous * 100 : null;
+  const peak = Math.max(0, ...tl.values);
+  const peakIdx = tl.values.indexOf(peak);
+  const avg = Math.round(d.total / Math.max(1, tl.dates.length));
+  const policies = sum((d.type_totals || []).filter(t => t.type === "policy" || t.type === "interpretation").map(t => t.n));
+  const cities = (d.city_totals || []).length;
+  const topCity = (d.city_totals || [])[0];
+  const deltaHtml = change === null
+    ? `<span class="kpi-delta down">暂无对比</span><span>前 7 天无数据</span>`
+    : `<span class="kpi-delta ${change >= 0 ? "" : "down"}">${change >= 0 ? "↑" : "↓"} ${Math.abs(change).toFixed(1)}%</span><span>较前 7 天</span>`;
+  const cards = [
+    {icon: "doc", label: "统计范围内新闻", value: d.total, unit: "篇", sub: deltaHtml, spark: true},
+    {icon: "cal", label: "日均发布", value: avg, unit: "篇/天", sub: `峰值 ${fmt(peak)} 篇 · ${peak >= 0 ? shortLabel(tl.dates[peakIdx] || "") : "—"}`},
+    {icon: "org", label: "国家部委新闻", value: d.national_total || 0, unit: "篇", sub: `占总量 ${d.total ? ((d.national_total || 0) / d.total * 100).toFixed(1) : "0.0"}%`},
+    {icon: "policy", label: "政策类内容", value: policies, unit: "篇", sub: `政策文件 + 解读 · ${d.total ? (policies / d.total * 100).toFixed(1) : "0.0"}%`},
+    {icon: "map", label: "覆盖地市", value: cities, unit: "个", sub: topCity ? `${esc(topCity.city)} 最活跃 ${fmt(topCity.n)} 篇` : "含省级 1 组"},
+  ];
+  document.getElementById("kpis").innerHTML = cards.map(k => `
+    <div class="kpi-card">
+      <div class="kpi-top"><span class="kpi-icon">${ICONS[k.icon]}</span>${k.label}</div>
+      <div class="kpi-value">${fmt(k.value)}<small>${k.unit}</small></div>
+      <div class="kpi-sub">${k.sub}</div>
+      ${k.spark ? sparkline(tl.values, C.blue) : ""}
+    </div>`).join("");
 }
 
-function renderTopics(d) {
-  const c = makeChart("c-topics");
-  const dates = d.daily.map(x => x.date.slice(5));  // MM-DD
-  const series = d.topics.map((t, i) => ({
-    name: t.tag, type: "line", smooth: true, symbolSize: 5,
-    data: t.series.map(s => s.n),
-    itemStyle: {color: PALETTE[i % PALETTE.length]}, lineStyle: {width: 2},
-  }));
-  c.setOption({
-    tooltip: {trigger: "axis"},
-    legend: {type: "scroll", bottom: 0, textStyle: {color: "#51565D", fontSize: 12}},
-    grid: {left: 40, right: 20, top: 20, bottom: 56},
-    xAxis: {type: "category", data: dates, axisLine: {lineStyle: {color: "#E5E6EB"}},
-            axisLabel: {color: "#8F959E"}},
-    yAxis: {type: "value", minInterval: 1, splitLine: {lineStyle: {color: "#F0F1F4"}},
-            axisLabel: {color: "#8F959E"}},
+/* ---------- 主趋势：面积图 + 移动均线 + 缩放 ---------- */
+function renderVolume(d, tl) {
+  const g = toGrain(tl.values, tl.dates);
+  const win = state.grain === "day" ? 7 : 3;
+  const ma = movingAverage(g.values, win);
+  const peak = Math.max(0, ...g.values);
+  const peakIdx = g.values.indexOf(peak);
+  const zoom = state.days >= 30 ? [{
+    type: "inside", start: 0, end: 100,
+    zoomOnMouseWheel: "ctrl", moveOnMouseWheel: true, moveOnMouseMove: false,
+  }, {
+    type: "slider", height: 14, bottom: 10, start: 0, end: 100,
+    borderColor: "transparent", backgroundColor: cssVar("--bg-hover"),
+    fillerColor: rgba(C.blue, .09),
+    dataBackground: {lineStyle: {color: rgba(C.blue, .45)}, areaStyle: {color: rgba(C.blue, .12)}},
+    selectedDataBackground: {lineStyle: {color: C.blue}, areaStyle: {color: rgba(C.blue, .18)}},
+    handleStyle: {color: "#fff", borderColor: C.axis},
+    moveHandleSize: 4, textStyle: {color: C.label, fontSize: 10},
+  }] : [{type: "inside", start: 0, end: 100, zoomOnMouseWheel: "ctrl"}];
+
+  setOption("c-volume", {
+    animationDuration: 420,
+    grid: {left: 54, right: 24, top: 26, bottom: state.days >= 30 ? 62 : 34},
+    tooltip: tip("axis", ps => {
+      if (!ps.length) return "";
+      const i = ps[0].dataIndex;
+      const head = state.grain === "day"
+        ? `${tl.dates[i]} ${weekday(tl.dates[i])}`
+        : `${g.labels[i]} 起一周`;
+      return tipHead(head) + ps.map(p => tipRow(p, p.value)).join("");
+    }),
+    xAxis: timeAxis(g.labels),
+    yAxis: valAxis({name: "篇", nameTextStyle: {color: C.label, fontSize: 11, padding: [0, 0, 0, -30]}}),
+    dataZoom: zoom,
+    series: [
+      {
+        name: "发布量", type: "line", smooth: .28, showSymbol: false, symbol: "circle", symbolSize: 6,
+        data: g.values, z: 2,
+        lineStyle: {width: 2.4, color: C.blue},
+        itemStyle: {color: C.blue},
+        areaStyle: {color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+          {offset: 0, color: rgba(C.blue, .26)}, {offset: 1, color: rgba(C.blue, .015)},
+        ])},
+        markPoint: peak > 0 ? {
+          symbol: "circle", symbolSize: 8, data: [{coord: [peakIdx, peak]}],
+          itemStyle: {color: C.red},
+          label: {show: true, position: "top", distance: 8, formatter: () => `峰值 ${fmt(peak)}`,
+                  color: C.red, fontSize: 11, fontWeight: 600},
+        } : undefined,
+        markLine: {silent: true, symbol: "none", data: [{type: "average", name: "均值"}],
+          lineStyle: {type: "dashed", color: rgba(C.label, .8), width: 1},
+          label: {show: true, position: "insideEndTop", formatter: p => `均值 ${fmt(Math.round(p.value))}`,
+                  color: C.label, fontSize: 11}},
+      },
+      {
+        name: `${win}${state.grain === "day" ? "日" : "周"}移动平均`, type: "line", smooth: true,
+        showSymbol: false, data: ma, z: 3,
+        lineStyle: {width: 1.8, color: C.orange, type: "dashed"},
+        itemStyle: {color: C.orange},
+      },
+    ],
+  });
+}
+
+/* ---------- 主题热度：标签可切换，避免 8 条线糊在一起 ---------- */
+function syncSelected() {
+  const names = (DATA.topics || []).map(t => t.tag);
+  const kept = state.topics.filter(n => names.includes(n));
+  state.topics = kept.length ? kept.slice(0, 5) : names.slice(0, 4);
+}
+function renderTopicChips() {
+  const el = document.getElementById("topic-chips");
+  el.innerHTML = (DATA.topics || []).map((t, i) => {
+    const on = state.topics.includes(t.tag);
+    return `<button type="button" class="topic-chip" data-tag="${esc(t.tag)}" aria-pressed="${on}"
+      title="点击${on ? "取消" : "加入"}对比"><i style="background:${CHART[i % CHART.length]}"></i>${esc(t.tag)}<span>${fmt(t.total)}</span></button>`;
+  }).join("");
+}
+function renderTopics(tl) {
+  const el = document.getElementById("c-topics");
+  const topics = (DATA.topics || []).filter(t => state.topics.includes(t.tag));
+  if (!topics.length) {
+    chartOf("c-topics").clear();
+    setOption("c-topics", {title: {text: "暂无主题数据，积累文章后自动生成", left: "center", top: "middle",
+      textStyle: {color: C.label, fontSize: 13, fontWeight: "normal"}}});
+    return;
+  }
+  const g0 = toGrain(tl.values, tl.dates);
+  const series = topics.map((t, i) => {
+    const map = new Map((t.series || []).map(s => [s.date, s.n]));
+    const byDay = tl.dates.map(k => map.get(k) || 0);
+    const color = CHART[(DATA.topics || []).indexOf(t) % CHART.length];
+    return {
+      name: t.tag, type: "line", smooth: .35, showSymbol: false, symbolSize: 5,
+      data: toGrain(byDay, tl.dates).values, z: 3,
+      lineStyle: {width: 2.2, color}, itemStyle: {color},
+      areaStyle: i === 0 ? {color: rgba(color, .07)} : undefined,
+      emphasis: {focus: "series", lineStyle: {width: 3}},
+    };
+  });
+  setOption("c-topics", {
+    animationDuration: 380,
+    grid: {left: 46, right: 20, top: 18, bottom: 34},
+    tooltip: tip("axis", ps => {
+      if (!ps.length) return "";
+      const sorted = ps.slice().sort((a, b) => (b.value || 0) - (a.value || 0));
+      return tipHead(ps[0].axisValue) + sorted.map(p => tipRow(p, p.value)).join("");
+    }),
+    xAxis: timeAxis(g0.labels),
+    yAxis: valAxis(),
     series,
   });
 }
 
-function renderDaily(d) {
-  const c = makeChart("c-daily");
-  c.setOption({
-    tooltip: {trigger: "axis"},
-    grid: {left: 40, right: 20, top: 20, bottom: 32},
-    xAxis: {type: "category", data: d.daily.map(x => x.date.slice(5)),
-            axisLine: {lineStyle: {color: "#E5E6EB"}}, axisLabel: {color: "#8F959E"}},
-    yAxis: {type: "value", minInterval: 1, splitLine: {lineStyle: {color: "#F0F1F4"}},
-            axisLabel: {color: "#8F959E"}},
-    series: [{
-      type: "bar", data: d.daily.map(x => x.n), barMaxWidth: 26,
-      itemStyle: {color: "#2B6CB0", borderRadius: [4, 4, 0, 0]},
-    }],
-  });
-}
-
-function renderTypes(d) {
-  const c = makeChart("c-types");
-  c.setOption({
-    tooltip: {trigger: "item", formatter: "{b}：{c} 条（{d}%）"},
-    legend: {bottom: 0, textStyle: {color: "#51565D", fontSize: 12}},
-    series: [{
-      type: "pie", radius: ["42%", "68%"], center: ["50%", "44%"],
-      data: d.type_totals.map((t, i) => ({
-        name: t.label, value: t.n,
-        itemStyle: {color: PALETTE[i % PALETTE.length]},
-      })),
-      label: {color: "#51565D", fontSize: 12, formatter: "{b}\n{c}"},
-    }],
-  });
-}
-
-function renderCity(d) {
-  const c = makeChart("c-city");
-  const sorted = [...d.city_totals].reverse();  // 横向条形从小到大
-  c.setOption({
-    tooltip: {trigger: "axis", axisPointer: {type: "shadow"}},
-    grid: {left: 80, right: 40, top: 10, bottom: 24},
-    xAxis: {type: "value", minInterval: 1, splitLine: {lineStyle: {color: "#F0F1F4"}},
-            axisLabel: {color: "#8F959E"}},
-    yAxis: {type: "category", data: sorted.map(x => x.city), axisLabel: {color: "#51565D"},
-            axisLine: {lineStyle: {color: "#E5E6EB"}}},
-    series: [{
-      type: "bar", data: sorted.map(x => x.n), barMaxWidth: 16,
-      itemStyle: {color: "#C0181F", borderRadius: [0, 4, 4, 0]},
-      label: {show: true, position: "right", color: "#8F959E", fontSize: 11},
-    }],
-  });
-}
-
-function renderRising(d) {
-  const el = document.getElementById("rising");
-  if (!d.rising.length) { el.innerHTML = '<div class="state" style="padding:32px 0">数据还不足两个周期，积累几天后这里会出现上升话题</div>'; return; }
-  el.innerHTML = d.rising.map((r, i) => {
-    const dir = r.delta >= 0;
-    const desc = dir
-      ? `近 7 天 ${r.recent} 条，前 7 天 ${r.previous} 条`
-      : `近 7 天 ${r.recent} 条，前 7 天 ${r.previous} 条，热度回落`;
-    return `<div class="rise-item">
-      <span class="rise-rank">${i + 1}</span>
-      <span class="rise-tag">${r.tag}</span>
-      <span class="rise-desc">${desc}</span>
-      <span class="rise-delta ${dir ? "" : "down"}">${dir ? "+" : ""}${r.delta} 条</span>
+/* ---------- 内容类型：环形图 + HTML 图例（数值/百分比/占比条） ---------- */
+function renderTypes() {
+  const totals = DATA.type_totals || [];
+  const total = sum(totals.map(t => t.n));
+  const legend = document.getElementById("type-legend");
+  legend.innerHTML = totals.map((t, i) => {
+    const p = total ? t.n / total * 100 : 0;
+    const color = CHART[i % CHART.length];
+    return `<div class="type-row" data-i="${i}">
+      <span class="dot" style="background:${color}"></span>
+      <span class="nm">${esc(t.label)}</span>
+      <span class="vl">${fmt(t.n)}</span>
+      <span class="pc">${p.toFixed(1)}%</span>
+      <span class="type-bar"><i style="width:${Math.max(1.5, p)}%;background:${color}"></i></span>
     </div>`;
-  }).join("");
+  }).join("") || `<div class="empty">暂无类型数据</div>`;
+  const policyN = sum(totals.filter(t => t.type === "policy" || t.type === "interpretation").map(t => t.n));
+  document.getElementById("type-insight").innerHTML = total
+    ? `结构解读：<b>${esc(totals[0].label)}</b> 占 ${(totals[0].n / total * 100).toFixed(1)}%，政策文件与解读合计 ${fmt(policyN)} 篇（${(policyN / total * 100).toFixed(1)}%）`
+    : "暂无类型数据";
+  setOption("c-types", {
+    animationDuration: 420,
+    tooltip: tip("item", p => `${p.marker}${esc(p.name)}<br/>共 <b>${fmt(p.value)}</b> 篇 · 占 ${p.percent}%`),
+    series: [{
+      type: "pie", radius: ["62%", "84%"], center: ["50%", "50%"],
+      avoidLabelOverlap: true, label: {show: false}, labelLine: {show: false},
+      itemStyle: {borderColor: "#fff", borderWidth: 3, borderRadius: 4},
+      emphasis: {scale: true, scaleSize: 4, itemStyle: {shadowBlur: 12, shadowColor: "rgba(0,0,0,.12)"}},
+      data: totals.map((t, i) => ({name: t.label, value: t.n, itemStyle: {color: CHART[i % CHART.length]}})),
+    }],
+    graphic: [
+      {type: "text", left: "center", top: "41%", style: {text: fmt(total), fill: C.text1, fontSize: 24, fontWeight: 600, fontFamily: C.font}},
+      {type: "text", left: "center", top: "55%", style: {text: "篇新闻", fill: C.label, fontSize: 11, fontFamily: C.font}},
+    ],
+  });
+  const c = chartOf("c-types");
+  legend.querySelectorAll(".type-row").forEach(row => {
+    const i = Number(row.dataset.i);
+    row.addEventListener("mouseenter", () => c.dispatchAction({type: "highlight", seriesIndex: 0, dataIndex: i}));
+    row.addEventListener("mouseleave", () => c.dispatchAction({type: "downplay", seriesIndex: 0, dataIndex: i}));
+  });
 }
 
-function esc(s) {
-  return String(s == null ? "" : s).replace(/[&<>"']/g, c =>
-    ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[c]);
-}
-
-function renderSignals(d) {
-  const el = document.getElementById("signals");
-  const s = d.signals || {chains: [], stage_totals: [], signal_total: 0};
-  const summary = `<div class="stage-summary">
-      <span>识别政策信号 ${s.signal_total} 条</span>
-      ${s.stage_totals.map(x => `<span>${esc(x.label)} ${x.n}</span>`).join("")}
-    </div>`;
-  if (!s.chains.length) {
-    el.innerHTML = summary + '<div class="state" style="padding:20px 0">当前范围还没有形成跨阶段的政策链条，积累更多政策文件后会自动出现</div>';
+/* ---------- 地市活跃度：降序横向条形 + 轨道 + 数值 ---------- */
+function renderCity() {
+  const items = (DATA.city_totals || []).slice(0, 12).reverse();
+  if (!items.length) {
+    setOption("c-city", {title: {text: "暂无地市数据", left: "center", top: "middle",
+      textStyle: {color: C.label, fontSize: 13, fontWeight: "normal"}}});
     return;
   }
-  el.innerHTML = summary + s.chains.map(ch => {
+  const max = Math.max(...items.map(x => x.n));
+  setOption("c-city", {
+    animationDuration: 420,
+    grid: {left: 8, right: 52, top: 8, bottom: 8, containLabel: true},
+    tooltip: tip("axis", ps => {
+      const p = ps[0];
+      return tipHead(esc(p.name)) + `<div>发布 <b style="color:${C.text1}">${fmt(p.value)}</b> 篇 · 占统计范围 ${DATA.total ? (p.value / DATA.total * 100).toFixed(1) : "0.0"}%</div>`;
+    }),
+    xAxis: valAxis(),
+    yAxis: {type: "category", data: items.map(x => x.city),
+      axisLine: {show: false}, axisTick: {show: false},
+      axisLabel: {color: C.text, fontSize: 11.5}},
+    series: [{
+      type: "bar", barMaxWidth: 14, showBackground: true,
+      backgroundStyle: {color: cssVar("--bg-hover"), borderRadius: [0, 4, 4, 0]},
+      data: items.map((x, i) => ({
+        value: x.n,
+        itemStyle: {
+          borderRadius: [0, 4, 4, 0],
+          color: new echarts.graphic.LinearGradient(0, 0, 1, 0, [
+            {offset: 0, color: rgba(x.n === max ? C.red : C.blue, .42)},
+            {offset: 1, color: x.n === max ? C.red : C.blue},
+          ]),
+        },
+      })),
+      label: {show: true, position: "right", color: C.text, fontSize: 11, formatter: p => fmt(p.value)},
+    }],
+  });
+}
+
+/* ---------- 上升话题：分组对比条 ---------- */
+function renderRising() {
+  const rising = DATA.rising || [];
+  const rows = rising.filter(r => r.recent || r.previous).slice(0, 8);
+  const insight = document.getElementById("rising-insight");
+  const top = rising.filter(r => r.delta > 0).slice(0, 3);
+  insight.innerHTML = top.length
+    ? `<b>本期升温最快</b>` + top.map(r => `<span class="rise-badge">${esc(r.tag)} +${fmt(r.delta)} 篇</span>`).join("")
+    : `<b>本期观察</b><span>近 7 天暂无明显升温主题，可切换统计范围查看</span>`;
+  if (!rows.length) {
+    setOption("c-rising", {title: {text: "数据还不足两个周期，积累几天后自动出现", left: "center", top: "middle",
+      textStyle: {color: C.label, fontSize: 13, fontWeight: "normal"}}});
+    return;
+  }
+  const sorted = rows.slice().reverse();
+  setOption("c-rising", {
+    animationDuration: 420,
+    grid: {left: 8, right: 78, top: 28, bottom: 30, containLabel: true},
+    tooltip: tip("axis", ps => {
+      const r = sorted[ps[0].dataIndex];
+      return tipHead(esc(r.tag)) + ps.map(p => tipRow(p, p.value)).join("") +
+        `<div style="margin-top:5px;color:${r.delta >= 0 ? C.red : C.label}">${r.delta >= 0 ? "上升" : "回落"} ${fmt(Math.abs(r.delta))} 篇 · 增幅 ${(r.growth * 100).toFixed(0)}%</div>`;
+    }),
+    legend: {top: 0, right: 0, itemWidth: 10, itemHeight: 8, textStyle: {color: C.text, fontSize: 11},
+             data: ["前 7 天", "近 7 天"]},
+    xAxis: valAxis(),
+    yAxis: {type: "category", data: sorted.map(r => r.tag),
+      axisLine: {show: false}, axisTick: {show: false},
+      axisLabel: {color: C.text, fontSize: 11.5}},
+    series: [
+      {name: "前 7 天", type: "bar", barMaxWidth: 10, barGap: "20%",
+       data: sorted.map(r => r.previous),
+       itemStyle: {color: rgba(cssVar("--chart-8"), .45), borderRadius: [0, 3, 3, 0]}},
+      {name: "近 7 天", type: "bar", barMaxWidth: 10,
+       data: sorted.map(r => ({value: r.recent,
+         itemStyle: {color: r.delta >= 0 ? C.blue : cssVar("--chart-8"), borderRadius: [0, 3, 3, 0]}})),
+       label: {show: true, position: "right", fontSize: 11, color: C.text,
+         formatter: p => {
+           const r = sorted[p.dataIndex];
+           return `${fmt(r.recent)}  ${r.delta >= 0 ? "↑" : "↓"}${fmt(Math.abs(r.delta))}`;
+         }}},
+    ],
+  });
+}
+
+/* ---------- 政策信号链 ---------- */
+function renderSignals() {
+  const el = document.getElementById("signals");
+  const s = DATA.signals || {chains: [], stage_totals: [], signal_total: 0};
+  const stages = s.stage_totals || [];
+  const maxStage = Math.max(1, ...stages.map(x => x.n));
+  const stats = stages.length ? `<div class="stage-stats">${stages.map(x => `
+    <div class="stage-stat"><b>${fmt(x.n)}</b><span>${esc(x.label)}</span>
+      <div class="bar"><i style="width:${x.n / maxStage * 100}%"></i></div></div>`).join("")}</div>` : "";
+  const chains = s.chains || [];
+  if (!chains.length) {
+    el.innerHTML = `<div class="insight-strip">识别政策信号 ${fmt(s.signal_total)} 条</div>` +
+      stats + `<div class="empty">当前范围还没有形成跨阶段的政策链条，积累更多政策文件后会自动出现</div>`;
+    return;
+  }
+  const shown = state.showAllChains ? chains : chains.slice(0, 3);
+  const html = shown.map(ch => {
+    const lastOn = ch.stages.reduce((last, st, i) => st.count ? i : last, -1);
     const flow = ch.stages.map((st, i) =>
-      `${i ? '<span class="stage-arrow">→</span>' : ""}<span class="stage-chip ${st.count ? "on" : ""}">${esc(st.label)}${st.count ? " " + st.count : ""}</span>`
+      `${i ? '<span class="stage-arrow">→</span>' : ""}<span class="stage-chip ${st.count ? "on" : ""} ${i === lastOn ? "current" : ""}">${esc(st.label)}${st.count ? " " + fmt(st.count) : ""}</span>`
     ).join("");
-    const groups = ch.stages.filter(st => st.items.length).map(st => `
+    const groups = ch.stages.filter(st => st.items && st.items.length).map(st => `
       <div class="stage-group"><b>${esc(st.label)}</b>
         ${st.items.map(it => `<a href="${esc(it.url)}" target="_blank" rel="noopener">
           <span class="src">${esc(it.date)} · ${esc(it.city)}</span>${esc(it.title)}</a>`).join("")}
       </div>`).join("");
+    const coverage = [0, 1, 2, 3].map(i => `<i class="${i < ch.coverage ? "on" : ""}"></i>`).join("");
     return `<div class="chain">
       <div class="chain-head"><span class="chain-tag">${esc(ch.tag)}</span>
-        <span class="chain-meta">覆盖 ${ch.coverage}/4 阶段 · ${ch.first_date} → ${ch.last_date} · ${ch.total} 篇</span></div>
+        <span class="coverage" title="覆盖 ${ch.coverage}/4 阶段">${coverage}</span>
+        <span class="chain-meta">覆盖 ${ch.coverage}/4 阶段 · ${esc(ch.first_date)} → ${esc(ch.last_date)} · ${fmt(ch.total)} 篇</span></div>
       <div class="stage-flow">${flow}</div>
       <details><summary>查看各阶段代表文章</summary>${groups}</details>
     </div>`;
   }).join("");
+  const more = chains.length > 3
+    ? `<button class="tool-btn" type="button" id="btn-chains">${state.showAllChains ? "收起" : `查看全部 ${chains.length} 条政策链`}</button>` : "";
+  el.innerHTML = `<div class="insight-strip"><b>识别政策信号</b><span>${fmt(s.signal_total)} 条，形成 ${chains.length} 条跨阶段链条</span></div>` + stats + html + more;
 }
 
-function renderMatrix(d) {
-  const m = d.matrix || {topics: [], cities: [], cells: [], max: 0};
-  const c = makeChart("c-matrix");
+/* ---------- 主题 × 地市热力矩阵 ---------- */
+function renderMatrix() {
+  const m = DATA.matrix || {topics: [], cities: [], cells: [], max: 0};
+  const el = "c-matrix";
   if (!m.topics.length || !m.max) {
-    c.clear();
-    c.setOption({title: {text: "主题数据不足", left: "center", top: "center",
-                         textStyle: {color: "#8F959E", fontSize: 13, fontWeight: "normal"}}});
+    chartOf(el).clear();
+    setOption(el, {title: {text: "主题数据不足，积累更多文章后自动生成", left: "center", top: "middle",
+      textStyle: {color: C.label, fontSize: 13, fontWeight: "normal"}}});
     return;
   }
-  const data = m.cells.map(x => [m.cities.indexOf(x.city), m.topics.indexOf(x.topic), x.n]);
-  c.setOption({
-    tooltip: {position: "top", formatter: p =>
-      `${m.topics[p.value[1]]} · ${m.cities[p.value[0]]}<br/><b>${p.value[2]}</b> 篇`},
-    grid: {left: 96, right: 28, top: 12, bottom: 92},
-    xAxis: {type: "category", data: m.cities, splitArea: {show: true},
-            axisLabel: {color: "#51565D", fontSize: 11, rotate: 32}},
-    yAxis: {type: "category", data: m.topics, splitArea: {show: true},
-            axisLabel: {color: "#51565D", fontSize: 12}},
-    visualMap: {min: 0, max: m.max, calculable: true, orient: "horizontal",
-                left: "center", bottom: 0, itemWidth: 12, itemHeight: 90,
-                inRange: {color: ["#FBEDEE", "#F2C3C5", "#DD7C81", "#C0181F"]},
-                textStyle: {color: "#8F959E", fontSize: 11}},
+  // 0 值也画成最浅色，避免出现「破洞」格子；数字只在有值时显示
+  const data = (m.cells || []).map(x => [m.cities.indexOf(x.city), m.topics.indexOf(x.topic), x.n]);
+  setOption(el, {
+    animationDuration: 380,
+    tooltip: tip("item", p => tipHead(`${esc(m.topics[p.value[1]])} · ${esc(m.cities[p.value[0]])}`) +
+      `<div>共 <b style="color:${C.text1}">${fmt(p.value[2])}</b> 篇</div>`),
+    grid: {left: 88, right: 24, top: 12, bottom: 62},
+    xAxis: catAxis(m.cities, {boundaryGap: true,
+      axisLabel: {color: C.text, fontSize: 11, rotate: 26, hideOverlap: false}}),
+    // 最热主题排在最上方，符合从重要到次要的阅读顺序
+    yAxis: {type: "category", data: m.topics, boundaryGap: true, inverse: true,
+      axisLine: {show: false}, axisTick: {show: false}, axisLabel: {color: C.text, fontSize: 11.5}},
+    visualMap: {min: 0, max: m.max, calculable: false, orient: "horizontal",
+      left: "center", bottom: 4, itemWidth: 14, itemHeight: 160,
+      text: ["多", "少"], textGap: 8, textStyle: {color: C.label, fontSize: 11},
+      inRange: {color: [cssVar("--brand-050"), "#F6D9DB", "#E9A9AD", C.red]}},
     series: [{
       type: "heatmap", data,
-      label: {show: true, color: "#4A4F56", fontSize: 10, formatter: p => p.value[2] || ""},
-      itemStyle: {borderColor: "#fff", borderWidth: 2},
-      emphasis: {itemStyle: {shadowBlur: 8, shadowColor: "rgba(0,0,0,.25)"}},
+      label: {show: true, color: "#4A4F56", fontSize: 10, formatter: p => p.value[2] ? fmt(p.value[2]) : ""},
+      itemStyle: {borderColor: "#fff", borderWidth: 2, borderRadius: 3},
+      emphasis: {itemStyle: {shadowBlur: 8, shadowColor: "rgba(0,0,0,.2)"}},
     }],
   });
 }
 
+/* ---------- 状态与元信息 ---------- */
+function updateMeta(tl) {
+  document.getElementById("updated").textContent =
+    `数据更新于 ${(DATA.generated_at || "").replace("T", " ").slice(0, 16)}`;
+  document.getElementById("filter-note").textContent =
+    `共 ${fmt(DATA.total)} 条 · ${tl.dates[0]} ~ ${tl.dates[tl.dates.length - 1]}`;
+  const unit = state.grain === "day" ? "按日" : "按周（周一起）";
+  document.getElementById("volume-sub").textContent =
+    `${unit}统计 · 含 ${state.grain === "day" ? "7 日" : "3 周"}移动平均线 · 虚线为区间均值`;
+  document.getElementById("topics-sub").textContent =
+    `${unit}统计 · Top 8 主题声量，点击标签可对比，最多 5 条`;
+  document.getElementById("empty-banner").classList.toggle("show", !DATA.total);
+}
+function renderAll() {
+  const tl = buildTimeline(DATA, state.days);
+  renderKpis(DATA, tl);
+  renderVolume(DATA, tl);
+  renderTopicChips();
+  renderTopics(tl);
+  renderTypes();
+  renderCity();
+  renderRising();
+  renderSignals();
+  renderMatrix();
+  updateMeta(tl);
+  document.querySelectorAll(".skeleton").forEach(el => el.classList.remove("skeleton"));
+}
+function updateSegs() {
+  document.querySelectorAll("#seg-days button").forEach(b =>
+    b.setAttribute("aria-pressed", Number(b.dataset.days) === state.days ? "true" : "false"));
+  document.querySelectorAll("#seg-grain button").forEach(b =>
+    b.setAttribute("aria-pressed", b.dataset.grain === state.grain ? "true" : "false"));
+}
+function syncUrl() {
+  const p = new URLSearchParams();
+  p.set("days", state.days);
+  if (state.grain !== "day") p.set("grain", state.grain);
+  history.replaceState(null, "", location.pathname + "?" + p.toString());
+}
+function setLoading(on) {
+  state.loading = on;
+  const btn = document.getElementById("btn-refresh");
+  btn.disabled = on;
+  btn.textContent = on ? "加载中…" : "刷新";
+  if (on) document.querySelectorAll("#kpis .kpi-card, .chart").forEach(el => el.classList.add("skeleton"));
+}
+function showError(msg) {
+  const el = document.getElementById("err");
+  el.querySelector(".err-msg").textContent = msg;
+  el.classList.add("show");
+}
+function flashNote(msg) {
+  const el = document.getElementById("filter-note");
+  const old = el.textContent;
+  el.textContent = msg;
+  setTimeout(() => { if (DATA) updateMeta(buildTimeline(DATA, state.days)); else el.textContent = old; }, 1800);
+}
+
+async function loadTrends() {
+  if (!window.echarts) { showError("图表组件加载失败，请检查网络后重新加载"); return; }
+  setLoading(true);
+  document.getElementById("err").classList.remove("show");
+  try {
+    const r = await fetch(`/api/trends?days=${state.days}`, {headers: H});
+    if (r.status === 401) { localStorage.removeItem("nb_token"); location.href = "/login.html"; return; }
+    if (!r.ok) throw new Error(`接口返回 ${r.status}`);
+    DATA = await r.json();
+    syncSelected();
+    renderAll();
+  } catch (e) {
+    showError(`数据加载失败（${e.message || "网络异常"}），请稍后重试`);
+  } finally {
+    setLoading(false);
+    // 无论成功失败都撤掉遮罩：成功时是渲染结果，失败时保留上一轮图表
+    document.querySelectorAll(".skeleton").forEach(el => el.classList.remove("skeleton"));
+  }
+}
+
+/* ---------- 交互 ---------- */
+document.getElementById("seg-days").addEventListener("click", e => {
+  const b = e.target.closest("button[data-days]"); if (!b) return;
+  const days = Number(b.dataset.days);
+  if (days === state.days || state.loading) return;
+  state.days = days; updateSegs(); syncUrl(); loadTrends();
+});
+document.getElementById("seg-grain").addEventListener("click", e => {
+  const b = e.target.closest("button[data-grain]"); if (!b) return;
+  if (b.dataset.grain === state.grain || !DATA) return;
+  state.grain = b.dataset.grain; updateSegs(); syncUrl();
+  const tl = buildTimeline(DATA, state.days);
+  renderVolume(DATA, tl); renderTopics(tl); updateMeta(tl);
+});
+document.getElementById("topic-chips").addEventListener("click", e => {
+  const b = e.target.closest(".topic-chip"); if (!b || !DATA) return;
+  const tag = b.dataset.tag;
+  if (state.topics.includes(tag)) {
+    if (state.topics.length === 1) { flashNote("至少保留 1 个主题"); return; }
+    state.topics = state.topics.filter(x => x !== tag);
+  } else {
+    if (state.topics.length >= 5) { flashNote("最多同时对比 5 个主题"); return; }
+    state.topics.push(tag);
+  }
+  renderTopicChips();
+  renderTopics(buildTimeline(DATA, state.days));
+});
+document.getElementById("btn-top4").addEventListener("click", () => {
+  if (!DATA) return;
+  state.topics = (DATA.topics || []).slice(0, 4).map(t => t.tag);
+  renderTopicChips(); renderTopics(buildTimeline(DATA, state.days));
+});
+document.getElementById("signals").addEventListener("click", e => {
+  if (!e.target.closest("#btn-chains")) return;
+  state.showAllChains = !state.showAllChains;
+  renderSignals();
+});
+document.getElementById("btn-refresh").addEventListener("click", loadTrends);
+document.getElementById("btn-retry").addEventListener("click", loadTrends);
+document.getElementById("btn-export").addEventListener("click", () => {
+  const c = echarts.getInstanceByDom(document.getElementById("c-volume"));
+  if (!c) { flashNote("图表尚未加载完成"); return; }
+  const a = document.createElement("a");
+  a.href = c.getDataURL({type: "png", pixelRatio: 2, backgroundColor: "#FFFFFF"});
+  a.download = `政策发布趋势_${state.days}天_${dateKey(new Date())}.png`;
+  a.click();
+});
+
+updateSegs();
+syncUrl();
 loadTrends();
 </script>
 </body>
