@@ -621,8 +621,12 @@ SEED_SOURCES = [
         },
     },
     {
-        # https 是自签证书链且回 504，只能走 http 明文（已加入 HTTP_ONLY_HOSTS）。
-        # 当前会话的网络策略未放行该域名，先禁用；确认允许后把 enabled 改成 True 即可。
+        # 2026-11-10 复查结论（此前误判为"网络策略未放行"）：
+        #   该站挂在创宇云防御后面，且边缘节点回源持续 502/504（"连接超时/服务器状态未知"），
+        #   即源站本身当前不可达；http 明文稳定回 412 瑞数挑战（识别条件与 is_wzws_challenge
+        #   完全匹配，waf.solve_wzws 可解），但多重探测后本机 IP 已被 WAF 升级为 403。
+        #   结论：故障在对方服务端，代码侧无法启用；站点恢复后按 README「海关总署」行
+        #   的步骤重测，通过后把 enabled 改成 True 即可。
         "name": "海关总署 - 要闻",
         "region_province": "全国", "region_city": "", "region_org": "海关总署",
         "level": "national",

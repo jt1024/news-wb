@@ -153,7 +153,7 @@ chmod 600 .env
 | 国家卫生健康委、国家药监局 | 创宇盾新版 412（`$_ts` 动态 VM + 外链混淆 JS，quickjs 缺 DOM 解不了） | 本机 Chrome headless + CDP 跑完挑战；一个域名一轮只启一个浏览器会话，直接取回渲染后的 HTML，并缓存 cookie 给同域后续请求复用 |
 | 人力资源社会保障部 | HTTP 200 但整页只有设置 `EO_Bot_Ssid` 的挑战 JS | quickjs 执行内联脚本取回两个 cookie |
 | 金融监管总局 | 列表与详情都是 Vue 空壳，走未公开 JSON 接口 | `url_template` 按 `docId` 拼详情页地址，`detail_api_template` 从 `SelectByDocId` 读 `docClob` 正文；Word 粘贴的 `<span>` 碎片按中文合并、去掉汉字间多余空格 |
-| 海关总署 | https 自签证书链且回 504，当前网络策略未放行该域名 | 已加入 `HTTP_ONLY_HOSTS` 走明文；源配置默认 `enabled=False`，网络放行后改成 `True` 即可启用 |
+| 海关总署 | 站点挂创宇云防御：https 边缘节点回源持续 502/504（源站不可达），http 稳定回 412 瑞数挑战，多次探测后本机 IP 被 WAF 升级 403 | 故障在对方服务端，代码侧无法启用；重测：`curl -sk -o /dev/null -w "%{http_code}" https://www.customs.gov.cn/` 返回 200 且 http 不再 412/403 后，用 Chrome CDP 预热通过挑战，再把源 `enabled` 改 `True` |
 
 412 预热依赖本机 Chrome（默认 macOS 路径，可用 `CHROME_PATH` 覆盖）与 `websockets` 包；找不到 Chrome 时这两个源本轮失败，其它源不受影响。CDP 请求显式关闭 `trust_env`，避免环境里的 `HTTP_PROXY` 把 127.0.0.1 的调试端口请求转发到代理。临时库实测 4 个启用源共 23 篇全部带发布日期；纯图片稿（人社部偶有）无正文，按既有规则抑制 30 天不重试。
 
