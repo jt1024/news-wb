@@ -1,0 +1,6 @@
+# 抓取端专用依赖：只有本地 Mac mini 跑定时抓取时才需要。
+# 本机完整安装：pip install -r requirements.txt -r requirements-crawler.txt
+# WorkBuddy「发布为应用」沙箱无 Chrome、也不跑抓取，只装 requirements.txt；
+# app/crawler/waf.py 已把 quickjs/websockets 做成可选导入，缺了不影响只读浏览。
+quickjs==1.19.4
+websockets==17.4

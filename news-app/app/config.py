@@ -1,8 +1,14 @@
 """应用配置：从环境变量/.env 读取。"""
 import os
+import time
 from pathlib import Path
 
 from dotenv import load_dotenv
+
+# 容器/沙箱默认 UTC 会让 datetime.now() 把日期算到前一天；统一固定北京时间。
+os.environ.setdefault("TZ", "Asia/Shanghai")
+if hasattr(time, "tzset"):
+    time.tzset()
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / ".env")
@@ -12,6 +18,14 @@ ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "changeme")
 # 签名密钥应是独立的高熵随机串。未配置时回退旧口令，保证老部署仍可用。
 AUTH_SECRET = os.getenv("AUTH_SECRET", "").strip()
 AUTH_TOKEN_EXPIRE_HOURS = int(os.getenv("AUTH_TOKEN_EXPIRE_HOURS", "72"))
+
+# 登录防爆破：同一来源连续失败 N 次锁定 M 秒（发布到公网后必须保持开启）。
+LOGIN_MAX_FAILURES = int(os.getenv("LOGIN_MAX_FAILURES", "5"))
+LOGIN_LOCK_SECONDS = int(os.getenv("LOGIN_LOCK_SECONDS", "300"))
+
+# WorkBuddy「发布为应用」沙箱只有一个 HTTP 端口，没有 Chrome、也不该跑抓取/推送。
+# 开启后不挂定时任务，线上仅提供新闻/趋势/报告的只读浏览。
+PUBLISH_MODE = os.getenv("PUBLISH_MODE", "").strip().lower() in ("1", "true", "yes", "on")
 
 
 def auth_signing_key() -> str:

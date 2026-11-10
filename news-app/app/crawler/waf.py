@@ -28,7 +28,11 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 import httpx
-import quickjs
+
+try:
+    import quickjs
+except ImportError:  # 发布沙箱只装核心依赖，爬虫专用包可以不装
+    quickjs = None
 
 from .. import config
 
@@ -107,6 +111,9 @@ def is_challenge(status_code: int, body: str) -> bool:
 
 def solve(url: str, challenge_html: str) -> str | None:
     """解 521 挑战页，缓存并返回 Cookie 头。失败返回 None。"""
+    if quickjs is None:
+        log.warning("quickjs 未安装，跳过 521 挑战求解")
+        return None
     host = _host_of(url)
     try:
         raw = _run_challenge_js(challenge_html)
@@ -361,6 +368,9 @@ def is_eo_challenge(status_code: int, body: str) -> bool:
 
 def solve_eo(url: str, body: str) -> str | None:
     """用 quickjs 解 EO_Bot_Ssid 内联挑战，返回 Cookie 头。"""
+    if quickjs is None:
+        log.warning("quickjs 未安装，跳过 EO 挑战求解")
+        return None
     m = re.search(r"<script[^>]*>([\s\S]*?)</script>", body)
     if not m:
         return None

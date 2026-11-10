@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 
 from ..auth import require_auth
+from .. import config
 from ..crawler.runner import run_fetch, seed_sources
 from ..db import get_db, SessionLocal
 from ..models import FetchLog, News, Source
@@ -14,6 +15,12 @@ from ..scheduler import trigger_fetch, trigger_interpret, trigger_report, _task_
 router = APIRouter(prefix="/api/admin", dependencies=[Depends(require_auth)])
 
 REPORTS_DIR = Path(__file__).resolve().parents[2] / "data" / "reports"
+
+
+def _read_only_guard():
+    """线上发布的是只读快照：抓取、推送、改源、复核都留给本地 Mac mini。"""
+    if config.PUBLISH_MODE:
+        raise HTTPException(status_code=403, detail="线上为只读快照，请在本地服务执行此操作")
 
 
 @router.get("/reports")
@@ -35,6 +42,7 @@ def admin_reports():
 @router.post("/generate-report")
 async def admin_generate_report():
     """立即生成最近一轮报告并按配置推送（异步）。"""
+    _read_only_guard()
     task_id = trigger_report()
     return {"task_id": task_id, "message": "报告生成与推送已启动"}
 
@@ -42,12 +50,14 @@ async def admin_generate_report():
 @router.post("/trigger-fetch")
 async def admin_trigger_fetch(max_items: int = 50):
     """异步触发抓取，立即返回任务 ID。"""
+    _read_only_guard()
     task_id = trigger_fetch(max_items)
     return {"task_id": task_id, "message": "抓取已启动"}
 
 
 @router.post("/trigger-interpret")
 async def admin_trigger_interpret(batch_size: int = 20):
+    _read_only_guard()
     task_id = trigger_interpret(batch_size)
     return {"task_id": task_id, "message": "解读已启动"}
 
@@ -123,6 +133,7 @@ def list_sources(db=Depends(get_db)):
 
 @router.post("/sources")
 def create_source(body: dict, db=Depends(get_db)):
+    _read_only_guard()
     required = ("name", "list_url")
     for k in required:
         if not body.get(k):
@@ -147,6 +158,7 @@ def create_source(body: dict, db=Depends(get_db)):
 
 @router.put("/sources/{source_id}")
 def update_source(source_id: int, body: dict, db=Depends(get_db)):
+    _read_only_guard()
     s = db.get(Source, source_id)
     if not s:
         raise HTTPException(404)
@@ -162,6 +174,7 @@ def update_source(source_id: int, body: dict, db=Depends(get_db)):
 
 @router.delete("/sources/{source_id}")
 def delete_source(source_id: int, db=Depends(get_db)):
+    _read_only_guard()
     s = db.get(Source, source_id)
     if not s:
         raise HTTPException(404)
@@ -184,6 +197,7 @@ def review_queue(db=Depends(get_db)):
 
 @router.post("/review/{news_id}")
 def review_news(news_id: int, body: dict, db=Depends(get_db)):
+    _read_only_guard()
     n = db.get(News, news_id)
     if not n:
         raise HTTPException(404)
@@ -199,6 +213,7 @@ def review_news(news_id: int, body: dict, db=Depends(get_db)):
 @router.delete("/review/{news_id}")
 def reject_news(news_id: int, db=Depends(get_db)):
     """复核不通过：重置为待解读。"""
+    _read_only_guard()
     n = db.get(News, news_id)
     if not n:
         raise HTTPException(404)

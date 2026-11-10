@@ -279,6 +279,39 @@ P2 深化（`app/trends_extra.py`）：
 
 每次新增源或调整选择器后建议跑一次全源体检；每日两轮的全部源状态可在执行报告里查看。
 
+## 发布为在线应用（WorkBuddy「发布为应用」）
+
+线上是一个**只读快照**，抓取、AI 解读、报告推送仍只在本机 Mac mini 跑，两边互不干扰。
+
+```bash
+.venv/bin/python scripts/build_publish.py   # 生成 ../publish-app/
+# 然后把 ../publish-app 作为目录发布（平台注入 $PORT，HTTPS 由平台反代终止）
+```
+
+`publish-app/` 由脚本生成、已被 Git 忽略：只含 `app/`、`web/`、`requirements.txt`、
+`serve.py` 和一份 SQLite 快照（用 `backup()` 保证 WAL 一致性），**不含** 飞书 Webhook、
+AI Key、本地口令、`.venv`、日志与备份。它自带独立强口令与 `AUTH_SECRET`，明文在
+`publish-app/.env`（权限 600），线上登录时从这里取。
+
+线上 `PUBLISH_MODE=1` 的行为：不挂 APScheduler、不抓取/不推送；后台所有写操作
+（触发抓取、改源、复核、生成报告）返回 403；`/health` 免鉴权供探活。
+
+### 公网加固（本机与线上共用）
+
+| 项 | 实现 |
+|---|---|
+| 弱口令 | `ADMIN_PASSWORD` 换 32 位随机串；`PUBLISH_MODE=1` 时弱口令直接拒绝启动 |
+| 暴力破解 | `/api/login` 常数时间比较 + 按 IP 连续失败 5 次锁定 300 秒（反代后取 XFF 首跳） |
+| 接口文档 | `docs_url` / `redoc_url` / `openapi_url` 全部关闭 |
+| 执行报告 | `/reports` 挂 `require_auth` 中间件，未登录返回登录页 |
+| 依赖 | `requirements.txt` 全量锁版本；抓取专用 `quickjs` / `websockets` 拆到 `requirements-crawler.txt`，且做成可选导入 |
+| 时区 | `config.py` 固定 `TZ=Asia/Shanghai`（容器默认 UTC 会把日期算到前一天）；APScheduler 亦显式声明 |
+| 日志 | watchdog 每轮把超 5MB 的日志原地截断保留最近 3000 行（保持 inode，launchd 句柄不失效） |
+| 热备 | 每轮 `sqlite3.Connection.backup()` 生成当天快照，`BACKUP_KEEP_DAYS` 默认 14 天，可配 `BACKUP_MIRROR_DIR` 异地镜像 |
+
+本机完整安装依赖：`pip install -r requirements.txt -r requirements-crawler.txt`；
+发布沙箱只装前者。
+
 ## 部署到云服务器
 
 1. 代码同步到服务器，按「从零部署」重建 `.venv` 并装依赖

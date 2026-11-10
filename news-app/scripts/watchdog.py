@@ -53,6 +53,31 @@ from app.watchdog_logic import (  # noqa: E402
 DB = ROOT / "data" / "news.db"
 STATE_FILE = ROOT / "data" / "watchdog.state.json"
 PID_FILE = ROOT / "data" / "watchdog.pid"
+
+# ---- 日志体积上限 ----
+# launchd 的 StandardOut/Error 是追加写，跑久了会无限膨胀；这里原地截断保留
+# 最近若干行（保持 inode 不变，launchd 已打开的文件句柄不会失效）。
+LOG_FILES = ("launchd.out.log", "launchd.err.log", "watchdog.log",
+             "watchdog.out.log", "heartbeat.out.log", "heartbeat.err.log")
+LOG_MAX_BYTES = 5 * 1024 * 1024
+LOG_KEEP_LINES = 3000
+
+
+def rotate_logs() -> None:
+    data_dir = ROOT / "data"
+    for name in LOG_FILES:
+        path = data_dir / name
+        try:
+            if not path.is_file() or path.stat().st_size <= LOG_MAX_BYTES:
+                continue
+            lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+            tail = lines[-LOG_KEEP_LINES:]
+            with path.open("r+", encoding="utf-8") as fh:
+                fh.seek(0)
+                fh.write("\n".join(tail) + "\n")
+                fh.truncate()
+        except OSError:
+            pass  # 日志整理失败绝不能影响守护主流程
 LOG_FILE = ROOT / "data" / "watchdog.log"
 ROUND_LOG = ROOT / "data" / "watchdog.round.log"
 HOST = "http://127.0.0.1:8300/"
@@ -302,6 +327,7 @@ def main() -> int:
     auto_run = env_flag("WATCHDOG_AUTO_RUN") and not args.no_auto_run
 
     if not args.loop:
+        rotate_logs()
         return check_once(dry_run=args.dry_run, auto_recover=auto_recover,
                           auto_run=auto_run)
 
@@ -311,6 +337,7 @@ def main() -> int:
     log_line(f"常驻守护启动 PID={os.getpid()} interval={args.interval}s")
     while True:
         try:
+            rotate_logs()
             check_once(auto_recover=auto_recover, auto_run=auto_run)
         except Exception as ex:  # noqa: BLE001  守护自身绝不能因单次异常退出
             log_line(f"自检异常（已忽略，下轮继续）：{str(ex)[:200]}")
