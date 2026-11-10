@@ -34,7 +34,7 @@
   </div>
   <nav class="site-nav">
     <a href="/">返回新闻流</a>
-    <a href="#" onclick="localStorage.removeItem('nb_token');location.href='/login.html';return false;">退出</a>
+    <a href="#" onclick="logout();return false;">退出</a>
   </nav>
 </header>
 
@@ -113,16 +113,21 @@
 <script>
 const TOKEN = localStorage.getItem("nb_token");
 if (!TOKEN) location.href = "/login.html";
-const H = {"Authorization": "Bearer " + TOKEN, "Content-Type": "application/json"};
+const H = {"Authorization": "Bearer " + TOKEN, "X-NB-Token": TOKEN, "Content-Type": "application/json"};
 
 const TASK_NAME = {fetch: "抓取更新", interpret: "AI 解读"};
 const STATUS_BADGE = {running: ["运行中", "running"], ok: ["已完成", "ok"], error: ["失败", "error"]};
 const TYPE_LABEL = {news: "新闻动态", notice: "通知公告", policy: "政策文件", interpretation: "政策解读", procurement: "招采公示"};
 
 /* 401 统一处理：令牌失效（如服务重启/过期）→ 清除并跳登录 */
+function logout() {
+  fetch("/api/logout", {method: "POST"}).finally(() => {
+    localStorage.removeItem("nb_token"); location.href = "/login.html";
+  });
+}
 async function api(url) {
   const r = await fetch(url, {headers: H});
-  if (r.status === 401) { localStorage.removeItem("nb_token"); location.href = "/login.html"; throw new Error("unauthorized"); }
+  if (r.status === 401) { logout(); throw new Error("unauthorized"); }
   return r.json();
 }
 

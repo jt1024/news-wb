@@ -86,10 +86,14 @@
 <script>
 const TOKEN = localStorage.getItem("nb_token");
 if (!TOKEN) location.href = "/login.html";
-const H = {"Authorization": "Bearer " + TOKEN};
+const H = {"Authorization": "Bearer " + TOKEN, "X-NB-Token": TOKEN};
 let page = 1, loading = false;
 
-function logout() { localStorage.removeItem("nb_token"); location.href = "/login.html"; }
+function logout() {
+  fetch("/api/logout", {method: "POST"}).finally(() => {
+    localStorage.removeItem("nb_token"); location.href = "/login.html";
+  });
+}
 function esc(s) { return (s || "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
 const TYPE_LABEL = {news: "新闻动态", notice: "通知公告", policy: "政策文件", interpretation: "政策解读", procurement: "招采公示"};
 function regionChips(n) {
@@ -169,7 +173,7 @@ async function openDetail(id) {
   document.getElementById("detail").innerHTML = '<div class="state">加载中…</div>';
   window._curDetail = null;
   const r = await fetch("/api/news/" + id, {headers: H});
-  if (r.status === 401) { localStorage.removeItem("nb_token"); location.href = "/login.html"; return; }
+  if (r.status === 401) { logout(); return; }
   const n = await r.json();
   window._curDetail = n;
   const pts = (n.ai_key_points || []).map(p => `<li>${fmtPoint(p)}</li>`).join("");

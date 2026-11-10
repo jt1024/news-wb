@@ -2,6 +2,7 @@
 
 只使用临时库，不触碰生产数据（见 tests/__init__.py）。
 """
+import json
 import unittest
 from unittest.mock import patch
 
@@ -13,11 +14,13 @@ from app.api import admin
 from app.db import Base, engine
 
 
-def _request(ip="1.2.3.4", xff=None):
-    headers = [(b"x-forwarded-for", xff.encode())] if xff else []
+def _request(ip="1.2.3.4", xff=None, headers=None):
+    raw = [(b"x-forwarded-for", xff.encode())] if xff else []
+    if headers:
+        raw = headers
     return Request({
         "type": "http", "method": "POST", "path": "/api/login",
-        "headers": headers, "query_string": b"", "scheme": "http",
+        "headers": raw, "query_string": b"", "scheme": "http",
         "client": (ip, 12345), "server": ("test", 80),
     })
 
@@ -48,8 +51,8 @@ class LoginGuardTests(unittest.TestCase):
                 auth.login({"password": "wrong"}, req)
             self.assertEqual(cm.exception.status_code, 429)
             # 锁定只影响该来源，其它 IP 仍可登录
-            token = auth.login({"password": "unit-test-strong-secret"}, _request(ip="6.6.6.6"))
-            self.assertTrue(auth.verify_token(token["token"]))
+            resp = auth.login({"password": "unit-test-strong-secret"}, _request(ip="6.6.6.6"))
+            self.assertTrue(auth.verify_token(json.loads(resp.body)["token"]))
 
     def test_success_clears_counter(self):
         with patch.object(config, "ADMIN_PASSWORD", "unit-test-strong-secret"), \
@@ -59,6 +62,24 @@ class LoginGuardTests(unittest.TestCase):
                 auth.login({"password": "wrong"}, req)
             auth.login({"password": "unit-test-strong-secret"}, req)
             self.assertNotIn("5.5.5.5", auth._failures)
+
+    def test_login_sets_cookie(self):
+        with patch.object(config, "ADMIN_PASSWORD", "unit-test-strong-secret"):
+            resp = auth.login({"password": "unit-test-strong-secret"}, _request())
+            self.assertIn("nb_token=", resp.headers.get("set-cookie", ""))
+            self.assertIn("HttpOnly", resp.headers.get("set-cookie", ""))
+
+
+class ProxyHeaderTests(unittest.TestCase):
+    """发布平台反代会占用 Authorization 头，必须还能靠自定义头/cookie 鉴权。"""
+
+    def test_custom_header_and_cookie_are_accepted(self):
+        with patch.object(config, "AUTH_SECRET", "unit-test-key"):
+            token = auth.create_token()
+            auth.require_auth(_request(headers=[(b"x-nb-token", token.encode())]))
+            auth.require_auth(_request(headers=[(b"cookie", f"nb_token={token}".encode())]))
+            with self.assertRaises(HTTPException):
+                auth.require_auth(_request())
 
 
 class PublishModeTests(unittest.TestCase):

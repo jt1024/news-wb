@@ -11,6 +11,7 @@ import threading
 import time
 
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import JSONResponse
 
 from . import config
 
@@ -43,11 +44,14 @@ def verify_token(token: str) -> bool:
 
 
 def require_auth(request: Request):
-    auth = request.headers.get("Authorization", "")
-    if auth.startswith("Bearer ") and verify_token(auth[7:]):
-        return
-    if verify_token(request.cookies.get("nb_token") or ""):
-        return
+    # 某些反代平台会占用/剥离 Authorization 头，额外认一个自定义头；
+    # 登录时也会下发 nb_token cookie，浏览器请求天然带上，三重兜底。
+    bearer = request.headers.get("Authorization", "")
+    custom = request.headers.get("X-NB-Token", "")
+    for candidate in (bearer[7:] if bearer.startswith("Bearer ") else "",
+                      custom, request.cookies.get("nb_token") or ""):
+        if candidate and verify_token(candidate):
+            return
     raise HTTPException(status_code=401, detail="未登录")
 
 
@@ -106,4 +110,19 @@ def login(body: dict, request: Request):
         _record_failure(key)
         raise HTTPException(status_code=403, detail="口令错误")
     _clear_failures(key)
-    return {"token": create_token()}
+    token = create_token()
+    resp = JSONResponse({"token": token})
+    # 发布平台反代会占用 Authorization 头；cookie 让浏览器请求始终能带上凭证。
+    https = (request.url.scheme == "https"
+             or request.headers.get("x-forwarded-proto", "").split(",")[0].strip() == "https")
+    resp.set_cookie("nb_token", token, max_age=TOKEN_EXPIRE_SECONDS,
+                    httponly=True, samesite="lax", secure=https, path="/")
+    return resp
+
+
+@router.post("/api/logout")
+def logout():
+    """退出时清掉 HttpOnly cookie，前端同时清 localStorage 并跳登录页。"""
+    resp = JSONResponse({"ok": True})
+    resp.delete_cookie("nb_token", path="/")
+    return resp
