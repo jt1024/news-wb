@@ -48,18 +48,39 @@ def _snapshot_db(src: Path, dst: Path) -> None:
         s.backup(d)
 
 
-def _password_for_publish() -> str:
+def _load_publish_env() -> dict[str, str]:
+    """在清空目录**之前**读出线上配置，用于保留登录口令与 token 签名密钥。"""
     env_file = OUT / ".env"
+    result: dict[str, str] = {}
     if env_file.exists():
         for line in env_file.read_text(encoding="utf-8").splitlines():
-            if line.startswith("ADMIN_PASSWORD="):
-                value = line.split("=", 1)[1].strip()
-                if len(value) >= 16:
-                    return value
-    return secrets.token_urlsafe(24)
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                key, value = line.split("=", 1)
+                result[key.strip()] = value.strip()
+    return result
+
+
+def _credentials_for_publish(prev: dict[str, str]) -> tuple[str, str]:
+    """复用已有口令/密钥；缺失或过弱时才重新生成。
+
+    每日自动同步会反复重建本目录，若每次都换新口令，用户会被锁在线上应用外，
+    且旧 token 因签名密钥变化全部失效。
+    """
+    pwd = prev.get("ADMIN_PASSWORD", "")
+    if len(pwd) < 16:
+        pwd = secrets.token_urlsafe(24)
+        reused = False
+    else:
+        reused = True
+    secret = prev.get("AUTH_SECRET") or secrets.token_urlsafe(40)
+    print(f"线上凭证: {'沿用已有口令' if reused else '生成新口令'}; "
+          f"签名密钥: {'沿用' if prev.get('AUTH_SECRET') else '新生成'}")
+    return pwd, secret
 
 
 def main() -> None:
+    prev = _load_publish_env()
     if OUT.exists():
         shutil.rmtree(OUT)
     OUT.mkdir(parents=True)
@@ -89,8 +110,7 @@ if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", "8300")), workers=1)
 ''', encoding="utf-8")
 
-    pwd = _password_for_publish()
-    secret = secrets.token_urlsafe(40)
+    pwd, secret = _credentials_for_publish(prev)
     (OUT / ".env").write_text(f'''# 线上只读快照专用配置：不含任何 AI Key / 飞书 Webhook / 本地口令
 ADMIN_PASSWORD={pwd}
 AUTH_SECRET={secret}
