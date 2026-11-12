@@ -31,12 +31,14 @@ def trends(days: int = Query(30, ge=7, le=365), db: Session = Depends(get_db)):
     d7 = now - timedelta(days=7)
     d14 = now - timedelta(days=14)
 
+    # 口径：本页只统计广东省 + 国家部委。港澳台地区（level='area'）的
+    # region_city 为空，若混进来会被映射成「广东省」并挤占地市榜首，故全部剔除。
     # ---- 1. 每日发布量 ----
     daily = [
         {"date": r.d, "n": r.n}
         for r in db.execute(
             text("""SELECT date(publish_time) d, count(*) n
-                    FROM news WHERE publish_time >= :start
+                    FROM news WHERE publish_time >= :start AND level != 'area'
                     GROUP BY d ORDER BY d"""),
             {"start": start},
         )
@@ -44,12 +46,12 @@ def trends(days: int = Query(30, ge=7, le=365), db: Session = Depends(get_db)):
 
     # ---- 2. 地市活跃度 ----
     # 国家级新闻 region_city 为空，若不排除会被映射成「广东省」并挤占地市榜首。
-    # 省级源同样为空，仍按「广东省」单列一组；只有 national 层级需要剔除。
+    # 省级源同样为空，仍按「广东省」单列一组；national 与 area 层级都要剔除。
     city_totals = [
         {"city": (r.c or "广东省"), "n": r.n}
         for r in db.execute(
             text("""SELECT region_city c, count(*) n
-                    FROM news WHERE publish_time >= :start AND level != 'national'
+                    FROM news WHERE publish_time >= :start AND level NOT IN ('national','area')
                     GROUP BY region_city ORDER BY n DESC"""),
             {"start": start},
         )
@@ -65,7 +67,7 @@ def trends(days: int = Query(30, ge=7, le=365), db: Session = Depends(get_db)):
         {"type": r.ctype, "label": TYPE_LABEL.get(r.ctype, r.ctype), "n": r.n}
         for r in db.execute(
             text("""SELECT content_type ctype, count(*) n
-                    FROM news WHERE publish_time >= :start
+                    FROM news WHERE publish_time >= :start AND level != 'area'
                     GROUP BY content_type ORDER BY n DESC"""),
             {"start": start},
         )
@@ -77,7 +79,7 @@ def trends(days: int = Query(30, ge=7, le=365), db: Session = Depends(get_db)):
                 FROM news_tags nt
                 JOIN tags t ON t.id = nt.tag_id
                 JOIN news ON news.id = nt.news_id
-                WHERE news.publish_time >= :start
+                WHERE news.publish_time >= :start AND news.level != 'area'
                 GROUP BY t.name ORDER BY n DESC LIMIT 8"""),
         {"start": start},
     ).all()
@@ -89,7 +91,7 @@ def trends(days: int = Query(30, ge=7, le=365), db: Session = Depends(get_db)):
                     FROM news_tags nt
                     JOIN tags t ON t.id = nt.tag_id
                     JOIN news ON news.id = nt.news_id
-                    WHERE news.publish_time >= :start AND t.name IN :names
+                    WHERE news.publish_time >= :start AND news.level != 'area' AND t.name IN :names
                     GROUP BY t.name, d ORDER BY d""").bindparams(
                 bindparam("names", expanding=True)
             ),
@@ -115,7 +117,7 @@ def trends(days: int = Query(30, ge=7, le=365), db: Session = Depends(get_db)):
                 FROM news_tags nt
                 JOIN tags t ON t.id = nt.tag_id
                 JOIN news ON news.id = nt.news_id
-                WHERE news.publish_time >= :d14
+                WHERE news.publish_time >= :d14 AND news.level != 'area'
                 GROUP BY t.name
                 HAVING (sum(CASE WHEN news.publish_time >= :d7 THEN 1 ELSE 0 END)
                         + sum(CASE WHEN news.publish_time >= :d14 AND news.publish_time < :d7 THEN 1 ELSE 0 END)) >= 2
@@ -138,7 +140,8 @@ def trends(days: int = Query(30, ge=7, le=365), db: Session = Depends(get_db)):
     )[:10]
 
     total = db.execute(
-        text("SELECT count(*) FROM news WHERE publish_time >= :start"), {"start": start}
+        text("SELECT count(*) FROM news WHERE publish_time >= :start AND level != 'area'"),
+        {"start": start},
     ).scalar()
 
     # ---- 6. 政策信号串联 + 同主题地市对比 ----

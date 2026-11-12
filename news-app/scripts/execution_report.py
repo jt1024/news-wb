@@ -59,11 +59,20 @@ def rounds(conn):
     return out
 
 
+def _area_expr(conn, alias, table):
+    """执行报告会被 watchdog 独立调用，可能早于服务启动（旧库还没有 region_area 列）。"""
+    cols = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+    return f"NULLIF({alias}.region_area,'')" if "region_area" in cols else "NULL"
+
+
 def load_round(conn, key, lo, hi):
+    src_area = _area_expr(conn, "s", "sources")
+    news_area = _area_expr(conn, "n", "news")
     logs = conn.execute(
-        """SELECT f.id, f.started_at, f.finished_at, f.status, f.found, f.inserted,
+        f"""SELECT f.id, f.started_at, f.finished_at, f.status, f.found, f.inserted,
                   f.duplicated, f.error, s.name,
-                  COALESCE(NULLIF(s.region_org,''), NULLIF(s.region_city,''), '广东省')
+                  COALESCE({src_area}, NULLIF(s.region_org,''),
+                           NULLIF(s.region_city,''), '广东省')
            FROM fetch_logs f LEFT JOIN sources s ON s.id = f.source_id
            WHERE f.started_at >= ? AND f.started_at <= ? ORDER BY f.id""",
         (lo, hi),
@@ -83,8 +92,9 @@ def load_round(conn, key, lo, hi):
     from datetime import timedelta
 
     news = conn.execute(
-        """SELECT n.title,
-                  COALESCE(NULLIF(n.region_org,''), NULLIF(n.region_city,''), '广东省'),
+        f"""SELECT n.title,
+                  COALESCE({news_area}, NULLIF(n.region_org,''),
+                           NULLIF(n.region_city,''), '广东省'),
                   n.publish_time, n.status, n.ai_error, s.name
            FROM news n LEFT JOIN sources s ON s.id = n.source_id
            WHERE n.fetch_time >= ? AND n.fetch_time <= ?

@@ -93,8 +93,12 @@ def check_ai_health(conn):
     if conn is None:
         return
     try:
-        pending = conn.execute("SELECT COUNT(*) FROM news WHERE status!='interpreted'").fetchone()[0]
-        err = conn.execute("SELECT COUNT(*) FROM news WHERE ai_error IS NOT NULL AND ai_error!=''").fetchone()[0]
+        # 港澳台地区稿件 status='skipped'（默认不做 AI 解读），属于预期状态，不算积压
+        pending = conn.execute(
+            "SELECT COUNT(*) FROM news WHERE status!='interpreted' AND level!='area'"
+        ).fetchone()[0]
+        err = conn.execute("SELECT COUNT(*) FROM news WHERE ai_error IS NOT NULL AND ai_error!='' "
+                           "AND level!='area'").fetchone()[0]
         add("AI 解读积压", pending == 0 and err == 0,
             f"待解读 {pending}｜AI 错误 {err}" +
             ("（额度恢复后下一轮自动补解读）" if pending or err else ""))

@@ -43,7 +43,8 @@ class TrendExtraTests(unittest.TestCase):
         with self.engine.begin() as c:
             c.execute(text("CREATE TABLE news (id INTEGER PRIMARY KEY, title TEXT, region_city TEXT, "
                            "publish_time TEXT, url TEXT, content_type TEXT, "
-                           "level TEXT DEFAULT 'city', region_org TEXT DEFAULT '')"))
+                           "level TEXT DEFAULT 'city', region_org TEXT DEFAULT '', "
+                           "region_area TEXT DEFAULT '')"))
             c.execute(text("CREATE TABLE tags (id INTEGER PRIMARY KEY, name TEXT)"))
             c.execute(text("CREATE TABLE news_tags (news_id INTEGER, tag_id INTEGER)"))
         self.db = sessionmaker(bind=self.engine)()
@@ -140,14 +141,17 @@ class PeriodReportTests(unittest.TestCase):
         conn.executescript("""
             CREATE TABLE news (id INTEGER PRIMARY KEY, title TEXT, region_city TEXT,
                 publish_time TEXT, url TEXT, content_type TEXT, status TEXT, ai_error TEXT,
-                level TEXT DEFAULT 'city', region_org TEXT DEFAULT '');
+                level TEXT DEFAULT 'city', region_org TEXT DEFAULT '',
+                region_area TEXT DEFAULT '');
             CREATE TABLE tags (id INTEGER PRIMARY KEY, name TEXT);
             CREATE TABLE news_tags (news_id INTEGER, tag_id INTEGER);
             CREATE TABLE fetch_logs (id INTEGER PRIMARY KEY, started_at TEXT,
                 inserted INTEGER, status TEXT);
             CREATE TABLE sources (id INTEGER PRIMARY KEY, name TEXT, region_city TEXT,
-                region_district TEXT, enabled INTEGER, region_org TEXT DEFAULT '');
-            INSERT INTO sources VALUES (1,'省级','','',1,''),(2,'广州市','广州市','',1,''),
+                region_district TEXT, enabled INTEGER, region_org TEXT DEFAULT '',
+                region_area TEXT DEFAULT '');
+            INSERT INTO sources (id,name,region_city,region_district,enabled,region_org) VALUES
+                (1,'省级','','',1,''),(2,'广州市','广州市','',1,''),
                 (3,'天河区','广州市','天河区',1,''),
                 (4,'国家发展改革委','','',1,'国家发展改革委');
             INSERT INTO tags VALUES (1,'产业');

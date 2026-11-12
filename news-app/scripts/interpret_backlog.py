@@ -28,7 +28,8 @@ def stats():
     q = lambda s: c.execute(s).fetchone()[0]
     r = {
         "total": q("select count(*) from news"),
-        "pending": q("select count(*) from news where status!='interpreted'"),
+        # 港澳台地区稿件 status='skipped' 属预期（默认不解读），不计入待解读积压
+        "pending": q("select count(*) from news where status!='interpreted' and level!='area'"),
         "done": q("select count(*) from news where status='interpreted'"),
         "errors": q("select count(*) from news where ai_error is not null and ai_error!=''"),
     }

@@ -42,12 +42,13 @@ def policy_chains(db, start, limit: int = 6) -> dict:
     """按主题聚合政策信号，返回覆盖 ≥2 个阶段的链条与阶段分布。"""
     rows = db.execute(
         text("""SELECT n.title title,
-                       COALESCE(NULLIF(n.region_org,''), NULLIF(n.region_city,''), '广东省') city,
+                       COALESCE(NULLIF(n.region_area,''), NULLIF(n.region_org,''),
+                                NULLIF(n.region_city,''), '广东省') city,
                        n.publish_time pub, n.url url, n.content_type ctype, t.name tag
                 FROM news n
                 JOIN news_tags nt ON nt.news_id = n.id
                 JOIN tags t ON t.id = nt.tag_id
-                WHERE n.publish_time >= :start AND t.name != '其他'
+                WHERE n.publish_time >= :start AND t.name != '其他' AND n.level != 'area'
                 ORDER BY n.publish_time DESC"""),
         {"start": start},
     ).all()
@@ -110,7 +111,7 @@ def city_topic_matrix(db, start, topics: list[str], cities: list[str]) -> dict:
                 JOIN news_tags nt ON nt.news_id = n.id
                 JOIN tags t ON t.id = nt.tag_id
                 WHERE n.publish_time >= :start AND t.name IN :topics
-                  AND n.level != 'national'
+                  AND n.level NOT IN ('national','area')
                 GROUP BY t.name, n.region_city""").bindparams(
             bindparam("topics", expanding=True)
         ),

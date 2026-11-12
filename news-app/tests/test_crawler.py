@@ -223,7 +223,7 @@ class DistrictSourceConfigTests(unittest.TestCase):
         from app.crawler.sources import SEED_SOURCES
 
         for c in SEED_SOURCES:
-            self.assertIn(c["level"], ("national", "province", "city", "district"))
+            self.assertIn(c["level"], ("national", "province", "city", "district", "area"))
 
 
 class UrlDateTests(unittest.TestCase):

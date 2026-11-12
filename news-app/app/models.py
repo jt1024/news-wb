@@ -26,7 +26,9 @@ class Source(Base):
     region_city: Mapped[str] = mapped_column(String(20), default="")
     region_district: Mapped[str] = mapped_column(String(20), default="")  # 区/县，市级源为空
     region_org: Mapped[str] = mapped_column(String(50), default="")  # 国家部委/机构简称，国家级源专用
-    level: Mapped[str] = mapped_column(String(20), default="city")  # national|province|city|district
+    # 港澳台地区专用维度，与广东省省/市/区体系完全隔离；取值见 sources.py 的 AREA_LABELS
+    region_area: Mapped[str] = mapped_column(String(20), default="")
+    level: Mapped[str] = mapped_column(String(20), default="city")  # national|province|city|district|area
     base_url: Mapped[str] = mapped_column(String(500), default="")
     list_url: Mapped[str] = mapped_column(String(500))
     fetch_type: Mapped[str] = mapped_column(String(10), default="html")  # rss|html
@@ -58,6 +60,7 @@ class News(Base):
     region_city: Mapped[str] = mapped_column(String(20), default="")
     region_district: Mapped[str] = mapped_column(String(20), default="")
     region_org: Mapped[str] = mapped_column(String(50), default="")
+    region_area: Mapped[str] = mapped_column(String(20), default="")
     level: Mapped[str] = mapped_column(String(20), default="city")
 
     content_type: Mapped[str] = mapped_column(String(20), default="news")
@@ -81,6 +84,7 @@ class News(Base):
     __table_args__ = (
         Index("ix_news_publish", "publish_time"),
         Index("ix_news_city", "region_city"),
+        Index("ix_news_area", "region_area"),
         Index("ix_news_status", "status"),
     )
 

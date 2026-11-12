@@ -44,6 +44,8 @@ URL_DATE_PATTERNS = [
     re.compile(r"/(20\d{2})(\d{2})(\d{2})/"),
     re.compile(r"/t(20\d{2})(\d{2})(\d{2})_"),
     re.compile(r"/(20\d{2})/(\d{1,2})/(\d{1,2})/art_"),
+    # 中央港澳办：/2026/11/02/ARTIxxxx.shtml（大写 ARTI，无 art_ 前缀）
+    re.compile(r"/(20\d{2})/(\d{1,2})/(\d{1,2})/"),
 ]
 
 DETAIL_DATE_META_RE = re.compile(
@@ -300,10 +302,15 @@ class Fetcher:
 
     @staticmethod
     def _decode(resp: httpx.Response) -> str:
-        if resp.encoding is None or resp.encoding == "utf-8":
+        enc = (resp.encoding or "utf-8").lower()
+        if enc == "utf-8":
             return resp.text
+        # GB2312/GBK 是 GB18030 的子集，国台办等站点按窄字符集声明，
+        # 直接用大字符集解码可避免生僻字触发 UnicodeDecodeError。
+        if enc in ("gb2312", "gbk", "gb-2312", "gb_2312"):
+            enc = "gb18030"
         try:
-            return resp.content.decode(resp.encoding)
+            return resp.content.decode(enc)
         except (UnicodeDecodeError, LookupError):
             return resp.text
 

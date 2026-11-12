@@ -78,12 +78,16 @@ def is_duplicate(db: Session, source: Source, url_h: str, t_hash: str, title: st
     #   2) 各国家部委共享同一命名空间——「李强主持召开国务院常务会议」这类
     #      中央通稿会被十几个部委站同时转载，只保留最先抓到的那条即可。
     district = getattr(source, "region_district", "") or ""
+    # 港澳台地区源的 city/district 都为空，必须再按 region_area 收窄，
+    # 否则三个地区会共享同一命名空间，跨地区同名通稿会被误判成重复。
+    area = getattr(source, "region_area", "") or ""
     if db.execute(
         select(News.id).where(
             News.title_hash == t_hash,
             News.level == source.level,
             News.region_city == source.region_city,
             News.region_district == district,
+            News.region_area == area,
         ).limit(1)
     ).scalar():
         return True
@@ -160,7 +164,11 @@ async def fetch_source(source: Source, db: Session, max_items: int = 50) -> Fetc
                 region_city=source.region_city,
                 region_district=getattr(source, "region_district", "") or "",
                 region_org=getattr(source, "region_org", "") or "",
+                region_area=getattr(source, "region_area", "") or "",
                 level=source.level,
+                # 港澳台地区稿件默认不做 AI 解读：避免模型对敏感表述拒答后堆积
+                # failed 终态，也避免混入广东省主题统计；原文与列表照常可用。
+                status="skipped" if (source.selector_config or {}).get("skip_ai") else "fetched",
                 # 部委列表页常不显示日期：URL 日期已在解析层兜底，这里再用详情页 meta 补一次
                 publish_time=item.publish_time or getattr(detail, "publish_time", None),
             )

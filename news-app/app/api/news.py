@@ -6,6 +6,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, joinedload
 
 from ..auth import require_auth
+from ..crawler.sources import AREA_LABELS
 from ..db import get_db
 from ..models import News, Source, Tag
 
@@ -20,6 +21,7 @@ def _brief(n: News) -> dict:
         "city": n.region_city,
         "district": n.region_district or "",
         "org": n.region_org or "",
+        "area": n.region_area or "",
         "level": n.level,
         "source": n.source.name if n.source else "",
         "content_type": n.content_type,
@@ -37,6 +39,7 @@ def list_news(
     district: str = "",
     level: str = "",
     org: str = "",
+    area: str = "",
     type_: str = Query("", alias="type"),
     tag: str = "",
     q: str = "",
@@ -55,6 +58,8 @@ def list_news(
         stmt = stmt.where(News.level == level)
     if org:
         stmt = stmt.where(News.region_org == org)
+    if area:
+        stmt = stmt.where(News.region_area == area)
     if type_:
         stmt = stmt.where(News.content_type == type_)
     if tag:
@@ -115,13 +120,16 @@ def meta(db: Session = Depends(get_db)):
     # 从源配置取而非新闻表：新接入的区还没抓到文章时，筛选下拉也要有选项
     districts = [r[0] for r in db.execute(select(Source.region_district).distinct()).all() if r[0]]
     orgs = [r[0] for r in db.execute(select(Source.region_org).distinct()).all() if r[0]]
+    # 地区下拉按 AREA_LABELS 固定顺序展示，避免中文排序把「港澳综合」挤到前面
+    present_areas = {r[0] for r in db.execute(select(Source.region_area).distinct()).all() if r[0]}
+    areas = [a for a in AREA_LABELS if a in present_areas] + sorted(present_areas - set(AREA_LABELS))
     tags = [t.name for t in db.execute(select(Tag)).scalars()]
     sources = [{"id": s.id, "name": s.name, "city": s.region_city,
                 "district": s.region_district or "", "org": s.region_org or "",
-                "level": s.level, "enabled": s.enabled}
+                "area": s.region_area or "", "level": s.level, "enabled": s.enabled}
                for s in db.execute(select(Source)).scalars()]
     return {"cities": sorted(cities), "districts": sorted(districts),
-            "orgs": sorted(orgs), "tags": tags, "sources": sources,
+            "orgs": sorted(orgs), "areas": areas, "tags": tags, "sources": sources,
             "types": [
                 {"key": "news", "label": "新闻动态"},
                 {"key": "notice", "label": "通知公告"},

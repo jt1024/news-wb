@@ -58,8 +58,10 @@
       <option value="province">省级</option>
       <option value="city">地市级</option>
       <option value="district">区县级</option>
+      <option value="area">港澳台地区</option>
     </select>
     <select id="f-org" title="国家部委 / 机构"><option value="">全部部委</option></select>
+    <select id="f-area" title="港澳台地区"><option value="">全部地区</option></select>
     <select id="f-city"><option value="">全部地市</option></select>
     <select id="f-district" title="广州市各区新闻"><option value="">全部区县</option></select>
     <select id="f-type"><option value="">全部类型</option></select>
@@ -99,10 +101,13 @@ const TYPE_LABEL = {news: "新闻动态", notice: "通知公告", policy: "政�
 function regionChips(n) {
   if (n.level === "national")
     return `<span class="chip city">国家部委</span>${n.org ? `<span class="chip city">${esc(n.org)}</span>` : ""}`;
+  if (n.level === "area")
+    return `<span class="chip city">${esc(n.area || "港澳台地区")}</span>`;
   return `<span class="chip city">${esc(n.city || "广东省")}</span>${n.district ? `<span class="chip city">${esc(n.district)}</span>` : ""}`;
 }
 function regionText(n) {
   if (n.level === "national") return "国家部委" + (n.org ? " · " + esc(n.org) : "");
+  if (n.level === "area") return esc(n.area || "港澳台地区");
   return esc(n.city || "广东省") + (n.district ? " · " + esc(n.district) : "");
 }
 
@@ -114,6 +119,8 @@ async function loadMeta() {
   (r.districts || []).forEach(d => district.add(new Option(d, d)));
   const org = document.getElementById("f-org");
   (r.orgs || []).forEach(o => org.add(new Option(o, o)));
+  const area = document.getElementById("f-area");
+  (r.areas || []).forEach(a => area.add(new Option(a, a)));
   const type = document.getElementById("f-type");
   r.types.forEach(t => type.add(new Option(t.label, t.key)));
   const tag = document.getElementById("f-tag");
@@ -122,7 +129,7 @@ async function loadMeta() {
 
 function filterQuery() {
   const p = new URLSearchParams();
-  const map = {level: "f-level", org: "f-org", city: "f-city", district: "f-district", type: "f-type", tag: "f-tag", start: "f-start", end: "f-end", q: "f-q"};
+  const map = {level: "f-level", org: "f-org", area: "f-area", city: "f-city", district: "f-district", type: "f-type", tag: "f-tag", start: "f-start", end: "f-end", q: "f-q"};
   for (const [k, id] of Object.entries(map)) {
     const v = document.getElementById(id).value;
     if (v) p.set(k === "type" ? "type" : k, v);
@@ -225,19 +232,22 @@ function closeDialog() { document.getElementById("mask").classList.remove("open"
 document.addEventListener("keydown", e => { if (e.key === "Escape") closeDialog(); });
 
 function resetFilters() {
-  ["f-level","f-org","f-city","f-district","f-type","f-tag","f-start","f-end","f-q"].forEach(id => document.getElementById(id).value = "");
+  ["f-level","f-org","f-area","f-city","f-district","f-type","f-tag","f-start","f-end","f-q"].forEach(id => document.getElementById(id).value = "");
   syncFilters();
   load(1);
 }
-/* 层级联动：国家级源没有地市/区县，省级源没有地市；区县只在广州（或未选城市）下可选。
-   选定某个部委时自动把层级切到「国家部委」，避免筛出空结果。 */
+/* 层级联动：国家级源没有地市/区县，省级源没有地市；港澳台地区用独立地区维度，
+   与广东省地市体系互斥。选定部委/地区时自动切到对应层级，避免筛出空结果。 */
 function syncFilters() {
   const lvl = document.getElementById("f-level").value;
   const org = document.getElementById("f-org");
   org.disabled = lvl !== "" && lvl !== "national";
   if (org.disabled) org.value = "";
+  const area = document.getElementById("f-area");
+  area.disabled = lvl !== "" && lvl !== "area";
+  if (area.disabled) area.value = "";
   const city = document.getElementById("f-city");
-  city.disabled = lvl === "national" || lvl === "province";
+  city.disabled = lvl === "national" || lvl === "province" || lvl === "area";
   if (city.disabled) city.value = "";
   const d = document.getElementById("f-district");
   d.disabled = city.disabled || (city.value && city.value !== "广州市");
@@ -246,6 +256,10 @@ function syncFilters() {
 ["f-level", "f-city"].forEach(id => document.getElementById(id).addEventListener("change", syncFilters));
 document.getElementById("f-org").addEventListener("change", e => {
   if (e.target.value) document.getElementById("f-level").value = "national";
+  syncFilters();
+});
+document.getElementById("f-area").addEventListener("change", e => {
+  if (e.target.value) document.getElementById("f-level").value = "area";
   syncFilters();
 });
 document.getElementById("f-q").addEventListener("keydown", e => { if (e.key === "Enter") load(1); });

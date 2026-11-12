@@ -22,14 +22,14 @@ def _fixture_db():
     conn.executescript(
         """
         CREATE TABLE sources (id INTEGER PRIMARY KEY, name TEXT, region_city TEXT,
-            region_org TEXT DEFAULT '');
+            region_org TEXT DEFAULT '', region_area TEXT DEFAULT '');
         CREATE TABLE fetch_logs (
             id INTEGER PRIMARY KEY, source_id INTEGER, started_at TEXT, finished_at TEXT,
             status TEXT, found INTEGER, inserted INTEGER, duplicated INTEGER, error TEXT);
         CREATE TABLE news (
             id INTEGER PRIMARY KEY, title TEXT, region_city TEXT, publish_time TEXT,
             status TEXT, ai_error TEXT, source_id INTEGER, fetch_time TEXT,
-            region_org TEXT DEFAULT '');
+            region_org TEXT DEFAULT '', region_area TEXT DEFAULT '');
         INSERT INTO sources (id,name,region_city) VALUES
           (1, '测试源甲', '甲市'), (2, '测试源乙', '乙市');
         INSERT INTO fetch_logs VALUES

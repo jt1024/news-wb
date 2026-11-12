@@ -1,4 +1,12 @@
-"""一期源站点配置：广州、深圳、佛山。首次启动时自动入库。"""
+"""源站点配置：广东省 / 国家部委 / 港澳台地区。首次启动时按名称幂等入库。
+
+港澳台地区使用独立的 region_area 维度与 level="area"，不写 region_city，
+避免污染广东省地市榜、趋势与周月报统计；标签一律采用规范表述。
+"""
+from __future__ import annotations
+
+# 港澳台地区分组（固定展示顺序）。「港澳综合」收中央港澳工作部门的跨地区稿件。
+AREA_LABELS = ("中国香港", "中国澳门", "中国台湾", "港澳综合")
 
 SEED_SOURCES = [
     {
@@ -634,5 +642,78 @@ SEED_SOURCES = [
         "list_url": "http://www.customs.gov.cn/",
         "fetch_type": "html", "selector_config": {"item": "a[href*='/customs/']"},
         "enabled": False,
+    },
+
+    # ===== 港澳台地区（2026-11-12 接入）=====
+    # 统一约束：
+    #   * level="area" + region_area=规范地区名，region_province/city/district/org 全部留空，
+    #     不参与广东省地市榜、趋势矩阵与周月报的「广东省」口径；
+    #   * 只采集大陆官方渠道（中央港澳办、驻港/驻澳联络办、中央台办），
+    #     不接入境外站点，也不与「国家部委」层级并列；
+    #   * skip_ai=True：这批稿件默认不做 AI 解读，避免模型对敏感表述拒答后
+    #     堆积 failed 终态；原文、标题、日期与列表展示均不受影响。
+    {
+        "name": "中共中央港澳办/国务院港澳办 - 时政要闻",
+        "region_province": "", "region_city": "", "region_district": "", "region_org": "",
+        "region_area": "港澳综合", "level": "area",
+        "base_url": "https://www.hmo.gov.cn",
+        "list_url": "https://www.hmo.gov.cn/szyw/index.shtml",
+        "fetch_type": "html",
+        "selector_config": {"item": "a", "skip_ai": True},
+    },
+    {
+        "name": "中央政府驻香港特别行政区联络办公室 - 港澳要闻",
+        "region_province": "", "region_city": "", "region_district": "", "region_org": "",
+        "region_area": "中国香港", "level": "area",
+        "base_url": "https://www.locpg.gov.cn",
+        "list_url": "https://www.locpg.gov.cn/gayw/index.htm",
+        "fetch_type": "html",
+        "selector_config": {"item": "a", "skip_ai": True},
+    },
+    {
+        "name": "中央政府驻香港特别行政区联络办公室 - 最新消息",
+        "region_province": "", "region_city": "", "region_district": "", "region_org": "",
+        "region_area": "中国香港", "level": "area",
+        "base_url": "https://www.locpg.gov.cn",
+        "list_url": "https://www.locpg.gov.cn/zxxx/index.htm",
+        "fetch_type": "html",
+        "selector_config": {"item": "a", "skip_ai": True},
+    },
+    {
+        "name": "中央政府驻澳门特别行政区联络办公室 - 我办要闻",
+        "region_province": "", "region_city": "", "region_district": "", "region_org": "",
+        "region_area": "中国澳门", "level": "area",
+        "base_url": "https://www.zlb.gov.cn",
+        "list_url": "https://www.zlb.gov.cn/wbyw.htm",
+        "fetch_type": "html",
+        "selector_config": {"item": "a", "skip_ai": True},
+    },
+    {
+        "name": "中央政府驻澳门特别行政区联络办公室 - 新闻中心",
+        "region_province": "", "region_city": "", "region_district": "", "region_org": "",
+        "region_area": "中国澳门", "level": "area",
+        "base_url": "https://www.zlb.gov.cn",
+        "list_url": "https://www.zlb.gov.cn/zysy.htm",
+        "fetch_type": "html",
+        "selector_config": {"item": "a", "skip_ai": True},
+    },
+    {
+        "name": "中共中央台办/国务院台办 - 新闻动态",
+        "region_province": "", "region_city": "", "region_district": "", "region_org": "",
+        "region_area": "中国台湾", "level": "area",
+        # 国台办列表页为 GB2312，Fetcher._decode 统一按 GB18030 解码
+        "base_url": "https://www.gwytb.gov.cn",
+        "list_url": "https://www.gwytb.gov.cn/xwdt/",
+        "fetch_type": "html",
+        "selector_config": {"item": "a", "skip_ai": True},
+    },
+    {
+        "name": "中共中央台办/国务院台办 - 最新发布",
+        "region_province": "", "region_city": "", "region_district": "", "region_org": "",
+        "region_area": "中国台湾", "level": "area",
+        "base_url": "https://www.gwytb.gov.cn",
+        "list_url": "https://www.gwytb.gov.cn/zxfb/",
+        "fetch_type": "html",
+        "selector_config": {"item": "a", "skip_ai": True},
     },
 ]
