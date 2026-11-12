@@ -249,6 +249,107 @@ td.num { font-variant-numeric: tabular-nums; }
 .state { text-align: center; color: var(--text-3); padding: 72px 0; font-size: 13.5px; }
 .state .state-icon { display: block; margin-bottom: 8px; font-size: 22px; opacity: .55; }
 
+/* ===================== 后台管理：页签 / 分组 / 抽屉 =====================
+   目的：把「一页到底」改为「首屏固定 + 分区按需展开」，页面高度不随源数量线性增长。
+   ========================================================================= */
+.admin-tabs {
+  display: flex; gap: 2px; align-items: stretch;
+  background: var(--bg-card);
+  border: 1px solid var(--border-2); border-radius: var(--r-lg);
+  padding: 0 var(--sp-3); margin-bottom: var(--sp-4);
+  overflow-x: auto;
+}
+.admin-tabs button {
+  flex: none; padding: 12px 16px; white-space: nowrap;
+  border: 0; border-bottom: 2px solid transparent; background: transparent;
+  color: var(--text-2); font-family: inherit; font-size: 13px; cursor: pointer;
+  transition: .15s;
+}
+.admin-tabs button:hover { color: var(--brand-600); background: var(--brand-050); }
+.admin-tabs button.active {
+  color: var(--brand-600); font-weight: 600; border-bottom-color: var(--brand-600);
+}
+.admin-tabs .tab-num {
+  display: inline-block; margin-left: 6px; padding: 0 6px;
+  border-radius: 999px; background: var(--err-bg); color: var(--err); font-size: 11px;
+}
+.tab-panel[hidden] { display: none; }
+
+.toolbar { display: flex; gap: var(--sp-2); align-items: center; flex-wrap: wrap; margin-bottom: var(--sp-3); }
+.toolbar input[type="text"] { flex: 1; min-width: 180px; }
+
+.group-row {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 11px 14px; margin-bottom: 8px;
+  border: 1px solid var(--border-2); border-radius: var(--r-md);
+  background: var(--bg-card); color: var(--text-1);
+  font-family: inherit; font-size: 14px; text-align: left; cursor: pointer;
+  transition: .15s;
+}
+.group-row:hover { background: var(--bg-hover); border-color: #C9CDD4; }
+.group-row .caret { flex: none; width: 12px; color: var(--text-3); font-size: 12px; transition: transform .15s; }
+.group-row.open .caret { transform: rotate(90deg); }
+.group-row .g-name { font-weight: 600; }
+.group-row .g-meta {
+  margin-left: auto; display: flex; align-items: center; gap: 12px;
+  font-size: 12px; color: var(--text-3); white-space: nowrap;
+}
+.group-body { margin: 0 0 12px 18px; padding-left: 14px; border-left: 2px solid var(--border-1); }
+.sub-row {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 8px 12px; margin-bottom: 6px;
+  border: 1px solid var(--border-2); border-radius: var(--r-sm);
+  background: var(--bg-hover); color: var(--text-2);
+  font-family: inherit; font-size: 13px; text-align: left; cursor: pointer;
+}
+.sub-row:hover { background: var(--brand-050); }
+.sub-row .g-meta { margin-left: auto; font-size: 12px; color: var(--text-3); white-space: nowrap; }
+.link-btn {
+  border: 0; background: transparent; padding: 0; color: var(--link);
+  font: inherit; text-align: left; cursor: pointer;
+}
+.link-btn:hover { color: var(--link-hover); text-decoration: underline; }
+.mini-btn {
+  padding: 3px 9px; font-size: 12px; line-height: 1.6;
+  border: 1px solid var(--border-1); border-radius: var(--r-sm);
+  background: var(--bg-card); color: var(--text-2); cursor: pointer;
+}
+.mini-btn:hover { border-color: #C9CDD4; color: var(--brand-600); }
+.rev-row { border: 1px solid var(--border-2); border-radius: var(--r-md); margin-bottom: 8px; }
+.rev-row > summary {
+  list-style: none; padding: 10px 14px; cursor: pointer;
+  font-size: 13px; color: var(--text-1);
+}
+.rev-row > summary::-webkit-details-marker { display: none; }
+.rev-row > summary:hover { background: var(--bg-hover); }
+.rev-row .rev-body { padding: 0 14px 14px; border-top: 1px solid var(--border-2); }
+
+/* 右侧抽屉：新增源 / 查看与编辑源，替代表格下方挤成一行的表单 */
+.mask .drawer {
+  position: absolute; top: 0; right: 0;
+  width: min(440px, 100%); min-height: 100%;
+  background: var(--bg-card); padding: var(--sp-5) var(--sp-6) 48px;
+  box-shadow: var(--shadow-dialog);
+  animation: drawer-in .18s ease-out;
+}
+@keyframes drawer-in {
+  from { transform: translateX(16px); opacity: .6; }
+  to   { transform: none; opacity: 1; }
+}
+.drawer-head { display: flex; align-items: center; gap: 10px; margin-bottom: var(--sp-4); }
+.drawer-head h2 { margin: 0; font-size: 16px; font-weight: 600; }
+.drawer-head .close {
+  margin-left: auto; width: 32px; height: 32px; border: 0; border-radius: 50%;
+  background: transparent; color: var(--text-3); font-size: 20px; line-height: 1; cursor: pointer;
+}
+.drawer-head .close:hover { background: var(--bg-hover); color: var(--text-1); }
+.drawer .field { margin-bottom: 12px; }
+.drawer .field label { display: block; font-size: 12px; color: var(--text-3); margin-bottom: 4px; }
+.drawer .field input, .drawer .field select { width: 100%; }
+.drawer .field input[type="text"], .drawer .field select { box-sizing: border-box; }
+.drawer .kv-line { font-size: 13px; color: var(--text-2); line-height: 1.9; word-break: break-all; }
+.drawer .kv-line b { color: var(--text-3); font-weight: 400; display: inline-block; min-width: 72px; }
+
 /* ===================== 详情弹窗 ===================== */
 .mask {
   position: fixed; inset: 0; z-index: 100;
@@ -327,4 +428,7 @@ td.num { font-variant-numeric: tabular-nums; }
   .page { padding: 0 var(--sp-4) 48px; }
   .dialog { padding: 24px 20px 28px; margin: 0; min-height: 100vh; border-radius: 0; }
   .stat-grid { grid-template-columns: repeat(2, 1fr); }
+  .admin-tabs button { padding: 10px 12px; }
+  .group-row .g-meta { gap: 8px; }
+  .mask .drawer { width: 100%; padding: var(--sp-5) var(--sp-4) 40px; }
 }

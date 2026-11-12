@@ -6,7 +6,7 @@
 <title>后台管理 - 政务新闻聚合平台</title>
 <link rel="stylesheet" href="/ui.css">
 <style>
-  /* ---- 本页专属（遵循 ui.css 令牌） ---- */
+  /* ---- 本页专属布局（组件样式统一在 ui.css） ---- */
   .page { max-width: 1000px; margin: var(--sp-5) auto 0; padding: 0 var(--sp-6) 64px; }
   .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
   .live { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ok); }
@@ -15,13 +15,10 @@
   .hint { font-size: 12px; color: var(--text-3); }
   .status-ok { color: var(--ok); } .status-err { color: var(--err); } .status-warn { color: var(--warn); }
   .cell-ellipsis { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .rev-item { border: 1px solid var(--border-2); border-radius: var(--r-md); padding: 14px 16px; margin-bottom: 10px; }
-  .rev-item b { font-size: 14px; }
-  .rev-item p { font-size: 13px; color: var(--text-2); margin: 8px 0; line-height: 1.7; }
-  .rev-actions { display: flex; gap: 8px; }
   .none { color: var(--text-3); font-size: 13px; }
   details summary { cursor: pointer; font-size: 13px; color: var(--link); user-select: none; }
-  .form-input { width: 100%; }
+  .form-input { width: 100%; box-sizing: border-box; }
+  .report-line { display: flex; align-items: center; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--border-2); }
 </style>
 </head>
 <body>
@@ -39,88 +36,121 @@
 </header>
 
 <main class="page">
+  <!-- 首屏固定：概览 KPI + 常用操作。切换页签时始终保持可见 -->
   <div class="card">
-    <h2>手动触发</h2>
-    <div class="row">
+    <h2>数据概览 <span class="hint" style="font-weight:400">（自动刷新）</span></h2>
+    <div id="stats" class="stat-grid"></div>
+    <div class="row" style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border-2)">
       <button class="btn primary" id="btn-fetch" onclick="trigger('fetch')">立即抓取更新</button>
       <button class="btn primary" id="btn-ai" onclick="trigger('interpret')">立即 AI 解读</button>
       <label style="font-size:13px;color:var(--text-2)">每批条数
         <input type="number" id="batch-size" value="20" min="1" max="100"
                style="width:64px;padding:6px 8px;margin-left:6px">
       </label>
-      <span class="hint">按钮会持续消化积压直到全部解读完</span>
+      <button class="btn report-btn" onclick="genReport()">生成并推送报告</button>
+      <span class="hint">解读会持续消化积压直到全部完成</span>
       <span id="trigger-msg" style="font-size:13px;color:var(--ok)"></span>
+      <span id="running-hint" class="hint"></span>
     </div>
   </div>
 
-  <div class="card">
-    <h2>数据概览</h2>
-    <div id="stats" class="stat-grid"></div>
-  </div>
+  <!-- 分区页签：重数据只在进入对应页签时加载 -->
+  <nav class="admin-tabs" id="tabs" aria-label="后台分区">
+    <button data-tab="overview">概览</button>
+    <button data-tab="sources">源站点</button>
+    <button data-tab="logs">抓取日志</button>
+    <button data-tab="reports">执行报告</button>
+    <button data-tab="review">待复核<span class="tab-num" id="review-num" hidden>0</span></button>
+  </nav>
 
-  <div class="card">
-    <h2>执行报告 <span class="hint" style="font-weight:400">（每轮抓取后自动生成并推送）</span></h2>
-    <div class="row" style="margin-bottom:12px">
-      <button class="btn primary" id="btn-report" onclick="genReport()">立即生成并推送</button>
-      <span class="hint">生成最近一轮报告；推送渠道在 .env 的 NOTIFY_CHANNEL 配置</span>
-      <span id="report-msg" style="font-size:13px;color:var(--ok)"></span>
-    </div>
-    <div id="reports"><span class="none">加载中…</span></div>
-  </div>
-
-  <div class="card">
+  <section class="card tab-panel" id="panel-overview">
     <h2>任务状态</h2>
     <div id="tasks"><span class="none">暂无任务 —— 点击上方按钮触发</span></div>
-  </div>
+    <h2 style="margin-top:24px">最近一轮 <span class="hint" style="font-weight:400">（摘要，完整信息见对应页签）</span></h2>
+    <div id="overview-digest"><span class="none">加载中…</span></div>
+  </section>
 
-  <div class="card">
-    <h2>源站点 <span class="hint" style="font-weight:400">（共 <span id="src-count">-</span> 个）</span></h2>
-    <div class="table-wrap">
-    <table><thead><tr><th>ID</th><th>名称</th><th>地市</th><th>区县</th><th>部委/机构</th><th>港澳台地区</th><th>列表页</th><th>状态</th><th>上次抓取</th><th>操作</th></tr></thead>
-    <tbody id="sources"><tr><td colspan="10">加载中…</td></tr></tbody></table>
+  <section class="card tab-panel" id="panel-sources" hidden>
+    <h2>源站点 <span class="hint" style="font-weight:400">（共 <span id="src-count">-</span> 个 · 按层级分组，默认收起）</span></h2>
+    <div class="toolbar">
+      <input type="text" id="src-q" placeholder="搜索源名称 / 地区 / 机构 / 列表页域名" oninput="renderSources()">
+      <select id="src-state" onchange="renderSources()">
+        <option value="all">全部状态</option>
+        <option value="enabled">仅启用</option>
+        <option value="disabled">仅停用</option>
+        <option value="stale">仅异常（停用 / 超 36h 未抓取）</option>
+      </select>
+      <button class="btn" onclick="expandAll(true)">展开全部</button>
+      <button class="btn" onclick="expandAll(false)">收起全部</button>
+      <button class="btn primary" onclick="openAddSource()">+ 新增源站点</button>
     </div>
-    <details style="margin-top:14px">
-      <summary>新增源站点</summary>
-      <div class="row" style="margin-top:12px;align-items:flex-start">
-        <input id="ns-name" class="form-input" placeholder="名称，如：珠海市人民政府 - 珠海要闻" style="flex:1;min-width:220px;padding:8px">
-        <input id="ns-city" placeholder="地市，如：广州市" style="width:110px;padding:8px">
-        <input id="ns-district" placeholder="区县，如：天河区" style="width:110px;padding:8px">
-        <input id="ns-org" placeholder="部委，如：国家发展改革委" style="width:160px;padding:8px">
-        <input id="ns-area" placeholder="港澳台地区，如：中国香港" style="width:160px;padding:8px">
-        <select id="ns-level" style="padding:8px">
-          <option value="city">市级</option><option value="national">国家部委</option><option value="province">省级</option><option value="district">区县级</option><option value="area">港澳台地区</option>
-        </select>
-        <input id="ns-url" placeholder="列表页 URL，如：https://www.xx.gov.cn/xw/" style="flex:1;min-width:260px;padding:8px">
-        <button class="btn primary" onclick="addSource()">添加</button>
-      </div>
-      <div class="hint" style="margin-top:6px">正文提取未配置时自动用智能启发式；保存后立即生效，下次抓取即收录。</div>
-    </details>
-  </div>
+    <div id="source-groups"><span class="none">加载中…</span></div>
+  </section>
 
-  <div class="card">
-    <h2>最近抓取日志</h2>
+  <section class="card tab-panel" id="panel-logs" hidden>
+    <h2>最近抓取日志 <span class="hint" style="font-weight:400">（最近 20 条）</span></h2>
     <div class="table-wrap">
     <table><thead><tr><th>时间</th><th>源</th><th>状态</th><th>发现</th><th>入库</th><th>去重</th><th>错误</th></tr></thead>
     <tbody id="logs"><tr><td colspan="7">加载中…</td></tr></tbody></table>
     </div>
-  </div>
+  </section>
 
-  <div class="card">
-    <h2>待复核 AI 解读</h2>
-    <div id="review">加载中…</div>
-  </div>
+  <section class="card tab-panel" id="panel-reports" hidden>
+    <h2>执行报告 <span class="hint" style="font-weight:400">（每轮抓取后自动生成并推送）</span></h2>
+    <div class="row" style="margin-bottom:12px">
+      <button class="btn primary report-btn" onclick="genReport()">立即生成并推送</button>
+      <span class="hint">生成最近一轮报告；推送渠道在 .env 的 NOTIFY_CHANNEL 配置</span>
+    </div>
+    <div id="reports"><span class="none">加载中…</span></div>
+  </section>
+
+  <section class="card tab-panel" id="panel-review" hidden>
+    <h2>待复核 AI 解读 <span class="hint" style="font-weight:400">（默认收起，点标题展开）</span></h2>
+    <div id="review"><span class="none">加载中…</span></div>
+  </section>
 </main>
+
+<!-- 右侧抽屉：新增源 / 查看详情与编辑，避免表单挤在表格下方 -->
+<div class="mask" id="drawer-mask" onclick="if(event.target===this)closeDrawer()">
+  <div class="drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <div class="drawer-head">
+      <h2 id="drawer-title">源站点</h2>
+      <button class="close" onclick="closeDrawer()" aria-label="关闭">×</button>
+    </div>
+    <div id="drawer-body"></div>
+  </div>
+</div>
 
 <script>
 const TOKEN = localStorage.getItem("nb_token");
 if (!TOKEN) location.href = "/login.html";
 const H = {"Authorization": "Bearer " + TOKEN, "X-NB-Token": TOKEN, "Content-Type": "application/json"};
 
-const TASK_NAME = {fetch: "抓取更新", interpret: "AI 解读"};
+const TASK_NAME = {fetch: "抓取更新", interpret: "AI 解读", report: "执行报告"};
 const STATUS_BADGE = {running: ["运行中", "running"], ok: ["已完成", "ok"], error: ["失败", "error"]};
-const TYPE_LABEL = {news: "新闻动态", notice: "通知公告", policy: "政策文件", interpretation: "政策解读", procurement: "招采公示"};
+const LEVEL_LABEL = {national: "国家部委", province: "省级", city: "地市级", district: "区县级", area: "港澳台地区"};
+const TABS = ["overview", "sources", "logs", "reports", "review"];
 
-/* 401 统一处理：令牌失效（如服务重启/过期）→ 清除并跳登录 */
+/* 五个固定层级分组；二级按地区/机构名。阶段 1 引入通用实体后再改为配置驱动 */
+const GROUP_DEFS = [
+  {key: "national", label: "国家部委",   sub: null,                          showSub: false},
+  {key: "province", label: "省级",       sub: null,                          showSub: false},
+  {key: "city",     label: "地市级",     sub: x => x.city || "未标注地市",   showSub: true},
+  {key: "district", label: "区县级",     sub: x => x.district || "未标注区县", showSub: true},
+  {key: "area",     label: "港澳台地区", sub: x => x.area || "港澳综合",     showSub: true},
+];
+
+let ACTIVE = "overview";
+let ALL_SOURCES = [];
+let RECENT_LOGS = [];
+let DIRTY = {overview: true, sources: true, logs: true, reports: true, review: true};
+const OPEN_GROUPS = new Set();
+const OPEN_SUBS = new Set();
+
+function esc(s) {
+  return String(s === null || s === undefined ? "" : s)
+    .replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
+}
 function logout() {
   fetch("/api/logout", {method: "POST"}).finally(() => {
     localStorage.removeItem("nb_token"); location.href = "/login.html";
@@ -131,6 +161,40 @@ async function api(url) {
   if (r.status === 401) { logout(); throw new Error("unauthorized"); }
   return r.json();
 }
+function flash(msg) {
+  const el = document.getElementById("trigger-msg");
+  el.textContent = msg;
+  setTimeout(() => { if (el.textContent === msg) el.textContent = ""; }, 4000);
+}
+function nameOf(id) {
+  const s = ALL_SOURCES.find(x => x.id === id);
+  return s ? s.name.split(" - ")[0] : "#" + id;
+}
+
+/* ---- 页签：切换 + 按需加载，URL hash 可分享 ---- */
+function loadTab(name, force) {
+  const map = {overview: () => {}, sources: loadSources,
+               logs: async () => { if (!ALL_SOURCES.length) await loadSources(); renderLogs(RECENT_LOGS); },
+               reports: loadReports, review: loadReview};
+  if (force || DIRTY[name]) { map[name](); DIRTY[name] = false; }
+}
+function markDirty() {
+  Array.from(arguments).forEach(n => { DIRTY[n] = true; });
+  if (DIRTY[ACTIVE]) loadTab(ACTIVE, true);
+}
+function setTab(name, force) {
+  if (!TABS.includes(name)) name = "overview";
+  ACTIVE = name;
+  document.querySelectorAll("#tabs button").forEach(b => b.classList.toggle("active", b.dataset.tab === name));
+  TABS.forEach(t => { document.getElementById("panel-" + t).hidden = (t !== name); });
+  if (location.hash.slice(1) !== name) history.replaceState(null, "", "#" + name);
+  loadTab(name, force);
+}
+document.getElementById("tabs").addEventListener("click", e => {
+  const b = e.target.closest("button[data-tab]");
+  if (b) setTab(b.dataset.tab);
+});
+window.addEventListener("hashchange", () => setTab(location.hash.slice(1)));
 
 /* ---- 任务状态：人性化渲染 ---- */
 function humanResult(name, r) {
@@ -149,53 +213,75 @@ function humanResult(name, r) {
   }
   return JSON.stringify(r);
 }
-
 function renderTasks(tasks) {
   const el = document.getElementById("tasks");
-  const ids = Object.keys(tasks);
+  const ids = Object.keys(tasks || {});
   if (!ids.length) { el.innerHTML = '<span class="none">暂无任务 —— 点击上方按钮触发</span>'; return; }
   el.innerHTML = ids.map(id => {
     const t = tasks[id];
     const [label, cls] = STATUS_BADGE[t.status] || [t.status, ""];
     let inner = `
       <div class="task-head">
-        <b>${TASK_NAME[t.name] || t.name}</b>
-        <span class="badge ${cls}">${label}</span>
-        <span class="task-time">${(t.started_at || "").replace("T", " ")}${t.finished_at ? " → " + t.finished_at.replace("T", " ") : ""}</span>
+        <b>${esc(TASK_NAME[t.name] || t.name)}</b>
+        <span class="badge ${cls}">${esc(label)}</span>
+        <span class="task-time">${esc((t.started_at || "").replace("T", " "))}${t.finished_at ? " → " + esc(t.finished_at.replace("T", " ")) : ""}</span>
       </div>`;
     if (t.status === "running" && t.progress && t.progress.total > 0) {
       const pct = Math.round(t.progress.done / t.progress.total * 100);
       inner += `
-        <div class="task-current">正在处理（${t.progress.done + 1}/${t.progress.total}）：${t.progress.current || ""}</div>
+        <div class="task-current">正在处理（${t.progress.done + 1}/${t.progress.total}）：${esc(t.progress.current || "")}</div>
         <div class="progress-wrap"><div class="progress-bar" style="width:${pct}%"></div></div>
-        <div class="progress-text">${t.progress.phase || ""} · ${pct}%</div>`;
+        <div class="progress-text">${esc(t.progress.phase || "")} · ${pct}%</div>`;
     } else if (t.status === "running") {
       inner += `<div class="task-current">正在准备…</div>`;
     }
     const res = humanResult(t.name, t.result);
-    if (res) inner += `<div class="task-current">${t.status === "error" ? '<span class="status-err">错误：' : ""}${res}${t.status === "error" ? "</span>" : ""}</div>`;
+    if (res) inner += `<div class="task-current">${t.status === "error" ? '<span class="status-err">错误：' : ""}${esc(res)}${t.status === "error" ? "</span>" : ""}</div>`;
     return `<div class="task-card">${inner}</div>`;
   }).join("");
 }
+function renderDigest(s) {
+  const logs = s.recent_logs || [];
+  const fail = logs.filter(l => l.status !== "ok");
+  document.getElementById("overview-digest").innerHTML = `
+    <div class="row" style="gap:24px">
+      <span class="hint">最近 20 条日志：成功 ${logs.length - fail.length} · 异常 ${fail.length}</span>
+      <span class="hint">最新抓取：${logs[0] ? esc(logs[0].started_at.slice(5, 16)) : "—"}</span>
+      <span class="hint">明细见「抓取日志」「执行报告」页签</span>
+    </div>` + (fail.length ? `<div style="margin-top:10px">${fail.slice(0, 3).map(l =>
+      `<div class="hint status-err">${esc(nameOf(l.source_id))} · ${esc((l.error || l.status).slice(0, 90))}</div>`
+    ).join("")}</div>` : "");
+}
 
-/* ---- 轻量轮询：概览 + 任务（2.5s） ---- */
+/* ---- 单一轮询链：只更新概览/KPI/任务，不再叠加定时器 ---- */
+let pollTimer = null;
+function schedulePoll(ms) { clearTimeout(pollTimer); pollTimer = setTimeout(pollStats, ms); }
 async function pollStats() {
+  let delay = 2500;
   try {
     const s = await api("/api/admin/status");
-    if (s.tasks) renderTasks(s.tasks);
+    RECENT_LOGS = s.recent_logs || [];
+    renderTasks(s.tasks);
+    renderDigest(s);
     document.getElementById("stats").innerHTML = `
       <span class="stat"><b>${s.counts.fetched}</b><span>待解读</span></span>
       <span class="stat"><b>${s.counts.interpreted}</b><span>已解读</span></span>
       <span class="stat"><b>${s.pending_review}</b><span>待复核</span></span>
       <span class="stat"><b>${s.counts.skipped}</b><span>去重跳过</span></span>`;
-    const running = Object.values(s.tasks || {}).filter(t => t.status === "running").map(t => t.name);
+    const num = document.getElementById("review-num");
+    num.textContent = s.pending_review;
+    num.hidden = !s.pending_review;
+    const running = Object.values(s.tasks || {}).filter(t => t.status === "running").map(t => TASK_NAME[t.name] || t.name);
+    document.getElementById("running-hint").textContent = running.length ? "正在运行：" + running.join("、") : "";
     document.getElementById("btn-fetch").disabled = running.includes("fetch");
     document.getElementById("btn-ai").disabled = running.includes("interpret");
-    if (running.length) setTimeout(pollStats, 1500); // 有任务运行时加快刷新
+    if (ACTIVE === "logs") renderLogs(RECENT_LOGS);
+    if (running.length) delay = 1500;
   } catch (e) { /* 服务重启中等下一次 */ }
+  schedulePoll(delay);
 }
 
-/* ---- 触发 ---- */
+/* ---- 手动触发 ---- */
 async function trigger(kind) {
   const btn = document.getElementById(kind === "fetch" ? "btn-fetch" : "btn-ai");
   btn.disabled = true;
@@ -204,112 +290,345 @@ async function trigger(kind) {
     const n = parseInt(document.getElementById("batch-size").value) || 20;
     url += `?batch_size=${n}`;
   }
-  const r = await fetch(url, {method: "POST", headers: H, body: "{}"});
-  const data = await r.json();
-  document.getElementById("trigger-msg").textContent = data.message || "已触发";
-  setTimeout(() => document.getElementById("trigger-msg").textContent = "", 4000);
-  pollStats(); loadHeavy();
+  try {
+    const r = await fetch(url, {method: "POST", headers: H, body: "{}"});
+    const data = await r.json();
+    flash(r.ok ? (data.message || "已触发") : (data.detail || "操作被拒绝"));
+  } catch (e) { flash("请求失败：" + e); }
+  btn.disabled = false;
+  markDirty("overview", "sources", "logs", "reports", "review");
+  pollStats();
 }
 
-/* ---- 重数据：源/日志/复核（操作后加载） ---- */
-async function loadHeavy() {
-  const srcs = await api("/api/admin/sources");
-  const cnt = document.getElementById("src-count");
-  if (cnt) cnt.textContent = srcs.length;
-  document.getElementById("sources").innerHTML = srcs.map(x => `
-    <tr><td>${x.id}</td><td>${x.name}</td><td>${x.city || "-"}</td><td>${x.district || "-"}</td><td>${x.org || "-"}</td><td>${x.area || "-"}</td>
-    <td class="cell-ellipsis">${x.list_url}</td>
-    <td class="${x.enabled ? 'status-ok' : 'status-warn'}">${x.enabled ? '启用' : '停用'}</td>
-    <td>${(x.last_fetch_at || "").slice(0, 16) || "-"}</td>
-    <td><button class="btn" onclick="toggleSource(${x.id}, ${x.enabled})">${x.enabled ? '停用' : '启用'}</button></td></tr>`).join("");
-
-  const s = await api("/api/admin/status");
-  document.getElementById("logs").innerHTML = s.recent_logs.map(l => `
-    <tr>
-      <td>${(l.started_at || "").slice(5, 16)}</td>
-      <td>${l.source_id}</td>
-      <td class="${l.status === 'ok' ? 'status-ok' : 'status-err'}">${l.status}</td>
-      <td class="num">${l.found}</td><td class="num">${l.inserted}</td><td class="num">${l.duplicated}</td>
-      <td class="cell-ellipsis status-err" style="max-width:240px">${l.error || "-"}</td>
-    </tr>`).join("") || '<tr><td colspan="7">暂无</td></tr>';
-
-  const rq = await api("/api/admin/review-queue");
-  document.getElementById("review").innerHTML = rq.length ? rq.map(n => `
-    <div class="rev-item">
-      <b>${n.title}</b> <span class="status-warn" style="font-size:12px">置信度 ${n.confidence}</span>
-      <p><b>摘要：</b>${n.summary || "-"}</p>
-      <p><b>解读：</b>${n.analysis || "-"}</p>
-      <div class="rev-actions">
-        <button class="btn primary" onclick="approve(${n.id})">通过</button>
-        <button class="btn danger-ghost" onclick="reject(${n.id})">标记失败（重置为待解读）</button>
-      </div>
-    </div>`).join("") : '<span class="none">没有待复核条目</span>';
+/* ---- 源站点：分组折叠 + 搜索筛选 ---- */
+function staleInfo(x) {
+  if (!x.enabled) return {cls: "status-warn", text: "已停用"};
+  if (!x.last_fetch_at) return {cls: "status-warn", text: "未抓取"};
+  const hrs = (Date.now() - new Date(x.last_fetch_at).getTime()) / 3600000;
+  if (!isFinite(hrs)) return {cls: "", text: "—"};
+  if (hrs > 36) return {cls: "status-warn", text: `超 ${Math.round(hrs)}h`};
+  return {cls: "status-ok", text: "正常"};
 }
-
+function isAbnormal(x) { return staleInfo(x).cls === "status-warn"; }
+function belongLabel(x, level) {
+  if (level === "national") return `<span class="chip neutral">国家部委</span> ${esc(x.org || "—")}`;
+  if (level === "province") return `<span class="chip neutral">省级</span> 广东省`;
+  if (level === "district") return `<span class="chip city">广州市</span> ${esc(x.district || "—")}`;
+  if (level === "area") return `<span class="chip city">${esc(x.area || "港澳台地区")}</span>`;
+  return `<span class="chip city">${esc(x.city || "—")}</span>`;
+}
+function filteredSources() {
+  const q = document.getElementById("src-q").value.trim().toLowerCase();
+  const st = document.getElementById("src-state").value;
+  return ALL_SOURCES.filter(x => {
+    if (st === "enabled" && !x.enabled) return false;
+    if (st === "disabled" && x.enabled) return false;
+    if (st === "stale" && !isAbnormal(x)) return false;
+    if (!q) return true;
+    return [x.name, x.city, x.district, x.org, x.area, x.list_url]
+      .some(v => String(v || "").toLowerCase().includes(q));
+  });
+}
+function sourceTable(items, level) {
+  const shown = items.slice(0, 60);
+  const more = items.length > shown.length
+    ? `<div class="hint" style="margin-top:6px">仅显示前 ${shown.length} 条，共 ${items.length} 条，请用搜索缩小范围</div>` : "";
+  return `<div class="table-wrap" style="margin:6px 0 12px">
+    <table><thead><tr><th>源名称</th><th>归属</th><th>状态</th><th>上次抓取</th><th>抓取时效</th><th>操作</th></tr></thead><tbody>
+    ${shown.map(x => {
+      const st = staleInfo(x);
+      return `<tr>
+        <td class="cell-ellipsis" title="${esc(x.name)}"><button class="link-btn" data-detail="${x.id}">${esc(x.name)}</button></td>
+        <td>${belongLabel(x, level)}</td>
+        <td class="${x.enabled ? "status-ok" : "status-warn"}">${x.enabled ? "启用" : "停用"}</td>
+        <td>${x.last_fetch_at ? esc(x.last_fetch_at.slice(0, 16)) : "-"}</td>
+        <td class="${st.cls}">${st.text}</td>
+        <td><button class="mini-btn" data-toggle="${x.id}" data-enabled="${x.enabled ? 1 : 0}">${x.enabled ? "停用" : "启用"}</button>
+            <button class="mini-btn" data-detail="${x.id}">详情</button></td>
+      </tr>`;
+    }).join("")}
+    </tbody></table></div>${more}`;
+}
+function renderSources() {
+  const rows = filteredSources();
+  const q = document.getElementById("src-q").value.trim();
+  const st = document.getElementById("src-state").value;
+  const filtering = !!(q || st !== "all");
+  let html = "";
+  for (const def of GROUP_DEFS) {
+    const items = rows.filter(x => x.level === def.key);
+    if (!items.length && filtering) continue;
+    const open = filtering || OPEN_GROUPS.has(def.key);
+    const enabled = items.filter(x => x.enabled).length;
+    const abn = items.filter(isAbnormal).length;
+    const last = items.map(x => x.last_fetch_at || "").sort().pop() || "";
+    html += `<div class="group-row ${open ? "open" : ""}" data-group="${def.key}" role="button" tabindex="0">
+      <span class="caret">▶</span>
+      <span class="g-name">${def.label}</span>
+      <span class="hint">${items.length} 个源</span>
+      <span class="g-meta">
+        <span>启用 ${enabled}</span>
+        ${abn ? `<span class="status-warn">异常 ${abn}</span>` : `<span class="status-ok">无异常</span>`}
+        <span>${last ? "最近 " + esc(last.slice(5, 16)) : "未抓取"}</span>
+        <span class="mini-btn" data-bulk="${def.key}">批量启停</span>
+      </span></div>`;
+    if (!open) continue;
+    html += `<div class="group-body">`;
+    if (!items.length) {
+      html += `<span class="none">该分组暂无源站点</span>`;
+    } else if (def.showSub) {
+      const subs = new Map();
+      items.forEach(x => {
+        const k = def.sub(x);
+        if (!subs.has(k)) subs.set(k, []);
+        subs.get(k).push(x);
+      });
+      const keys = Array.from(subs.keys()).sort((a, b) => a.localeCompare(b, "zh"));
+      if (keys.length > 8 && keys.every(k => subs.get(k).length <= 1)) {
+        html += sourceTable(items, def.key);
+      } else {
+        for (const k of keys) {
+          const subKey = def.key + "|" + k;
+          const subOpen = filtering || OPEN_SUBS.has(subKey);
+          html += `<div class="sub-row" data-sub="${esc(subKey)}" role="button" tabindex="0">
+            <span class="caret">${subOpen ? "▾" : "▶"}</span>
+            <span>${esc(k)}</span>
+            <span class="g-meta">${subs.get(k).length} 个源 · 启用 ${subs.get(k).filter(x => x.enabled).length}</span>
+          </div>`;
+          if (subOpen) html += sourceTable(subs.get(k), def.key);
+        }
+      }
+    } else {
+      html += sourceTable(items, def.key);
+    }
+    html += `</div>`;
+  }
+  document.getElementById("source-groups").innerHTML = html || `<span class="none">没有匹配的源站点</span>`;
+}
+async function loadSources() {
+  ALL_SOURCES = await api("/api/admin/sources");
+  document.getElementById("src-count").textContent = ALL_SOURCES.length;
+  renderSources();
+}
+function toggleGroup(k) { OPEN_GROUPS.has(k) ? OPEN_GROUPS.delete(k) : OPEN_GROUPS.add(k); renderSources(); }
+function toggleSub(k) { OPEN_SUBS.has(k) ? OPEN_SUBS.delete(k) : OPEN_SUBS.add(k); renderSources(); }
+function expandAll(open) {
+  OPEN_GROUPS.clear(); OPEN_SUBS.clear();
+  if (open) {
+    GROUP_DEFS.forEach(g => {
+      OPEN_GROUPS.add(g.key);
+      if (g.showSub) ALL_SOURCES.filter(x => x.level === g.key)
+        .forEach(x => OPEN_SUBS.add(g.key + "|" + g.sub(x)));
+    });
+  }
+  renderSources();
+}
+document.getElementById("source-groups").addEventListener("click", e => {
+  const bulk = e.target.closest("[data-bulk]");
+  if (bulk) { e.stopPropagation(); bulkToggle(bulk.dataset.bulk); return; }
+  const tog = e.target.closest("[data-toggle]");
+  if (tog) { toggleSource(+tog.dataset.toggle, tog.dataset.enabled === "1"); return; }
+  const detail = e.target.closest("[data-detail]");
+  if (detail) { openDetail(+detail.dataset.detail); return; }
+  const sub = e.target.closest("[data-sub]");
+  if (sub) { toggleSub(sub.dataset.sub); return; }
+  const grp = e.target.closest("[data-group]");
+  if (grp) toggleGroup(grp.dataset.group);
+});
+document.getElementById("source-groups").addEventListener("keydown", e => {
+  if (e.key !== "Enter" && e.key !== " ") return;
+  const el = e.target.closest("[data-group], [data-sub]");
+  if (el) { e.preventDefault(); el.click(); }
+});
 async function toggleSource(id, enabled) {
-  await fetch(`/api/admin/sources/${id}`, {method: "PUT", headers: H, body: JSON.stringify({enabled: !enabled})});
-  loadHeavy();
+  const r = await fetch(`/api/admin/sources/${id}`, {method: "PUT", headers: H, body: JSON.stringify({enabled: !enabled})});
+  if (!r.ok) {
+    const d = await r.json().catch(() => ({}));
+    flash(d.detail || "操作被拒绝（线上为只读快照？）");
+    return;
+  }
+  markDirty("sources");
+}
+async function bulkToggle(key) {
+  const items = ALL_SOURCES.filter(x => x.level === key);
+  if (!items.length) return;
+  const target = !items.every(x => x.enabled);
+  if (!confirm(`确定${target ? "启用" : "停用"}「${LEVEL_LABEL[key]}」下 ${items.length} 个源站点？`)) return;
+  const rs = await Promise.all(items.map(x => fetch(`/api/admin/sources/${x.id}`,
+    {method: "PUT", headers: H, body: JSON.stringify({enabled: target})})));
+  flash(rs.some(r => !r.ok) ? "部分操作被拒绝（线上为只读快照？）" : `已${target ? "启用" : "停用"} ${items.length} 个源站点`);
+  markDirty("sources");
+}
+
+/* ---- 右侧抽屉 ---- */
+function openDrawer(title, html) {
+  document.getElementById("drawer-title").textContent = title;
+  document.getElementById("drawer-body").innerHTML = html;
+  document.getElementById("drawer-mask").classList.add("open");
+}
+function closeDrawer() { document.getElementById("drawer-mask").classList.remove("open"); }
+document.addEventListener("keydown", e => { if (e.key === "Escape") closeDrawer(); });
+function syncLevelFields() {
+  const sel = document.getElementById("ns-level");
+  if (!sel) return;
+  const lvl = sel.value;
+  document.querySelectorAll("#drawer-body [data-lvl]").forEach(el => {
+    el.style.display = (el.dataset.lvl === lvl) ? "" : "none";
+  });
+}
+function openAddSource() {
+  openDrawer("新增源站点", `
+    <div class="field"><label>名称 *</label><input id="ns-name" class="form-input" placeholder="如：珠海市人民政府 - 珠海要闻"></div>
+    <div class="field"><label>层级</label><select id="ns-level" onchange="syncLevelFields()">
+      <option value="city">地市级</option>
+      <option value="national">国家部委</option>
+      <option value="province">省级</option>
+      <option value="district">区县级</option>
+      <option value="area">港澳台地区</option>
+    </select></div>
+    <div class="field" data-lvl="city"><label>地市</label><input id="ns-city" class="form-input" placeholder="如：广州市"></div>
+    <div class="field" data-lvl="district"><label>区县</label><input id="ns-district" class="form-input" placeholder="如：天河区"></div>
+    <div class="field" data-lvl="national" style="display:none"><label>部委 / 机构</label><input id="ns-org" class="form-input" placeholder="如：国家发展改革委"></div>
+    <div class="field" data-lvl="area" style="display:none"><label>港澳台地区</label><input id="ns-area" class="form-input" placeholder="中国香港 / 中国澳门 / 中国台湾 / 港澳综合"></div>
+    <div class="field"><label>列表页 URL *</label><input id="ns-url" class="form-input" placeholder="https://www.xx.gov.cn/xw/"></div>
+    <div class="hint">正文提取未配置时自动用智能启发式；保存后立即生效，下次抓取即收录。</div>
+    <div class="row" style="margin-top:16px">
+      <button class="btn primary" onclick="addSource()">添加源站点</button>
+      <button class="btn" onclick="closeDrawer()">取消</button>
+    </div>`);
+  syncLevelFields();
 }
 async function addSource() {
+  const val = id => document.getElementById(id).value.trim();
+  const level = val("ns-level");
+  /* 只提交当前层级对应的归属字段，避免切换层级后残留值污染统计口径 */
   const body = {
-    name: document.getElementById("ns-name").value.trim(),
-    city: document.getElementById("ns-city").value.trim(),
-    district: document.getElementById("ns-district").value.trim(),
-    org: document.getElementById("ns-org").value.trim(),
-    area: document.getElementById("ns-area").value.trim(),
-    level: document.getElementById("ns-level").value,
-    list_url: document.getElementById("ns-url").value.trim(),
-    fetch_type: "html",
+    name: val("ns-name"), level: level, list_url: val("ns-url"), fetch_type: "html",
+    city: level === "city" ? val("ns-city") : "",
+    district: level === "district" ? val("ns-district") : "",
+    org: level === "national" ? val("ns-org") : "",
+    area: level === "area" ? val("ns-area") : "",
   };
   if (!body.name || !body.list_url) { alert("名称和列表页 URL 必填"); return; }
   const r = await fetch("/api/admin/sources", {method: "POST", headers: H, body: JSON.stringify(body)});
   const data = await r.json();
   if (r.ok) {
-    document.getElementById("ns-name").value = ""; document.getElementById("ns-url").value = "";
-    document.getElementById("trigger-msg").textContent = "源已添加（ID " + data.id + "）";
-    loadHeavy();
+    closeDrawer(); flash("源已添加（ID " + data.id + "）");
+    markDirty("sources");
   } else {
     alert("添加失败：" + (data.detail || "未知错误"));
   }
 }
-async function approve(id) {
-  await fetch(`/api/admin/review/${id}`, {method: "POST", headers: H, body: JSON.stringify({})});
-  loadHeavy(); pollStats();
+function openDetail(id) {
+  const x = ALL_SOURCES.find(s => s.id === id);
+  if (!x) return;
+  const logs = RECENT_LOGS.filter(l => l.source_id === id).slice(0, 3);
+  const st = staleInfo(x);
+  openDrawer("源站点详情", `
+    <div class="kv-line"><b>ID</b>${x.id} · ${esc(LEVEL_LABEL[x.level] || x.level)}</div>
+    <div class="kv-line"><b>归属</b>${belongLabel(x, x.level)}</div>
+    <div class="kv-line"><b>状态</b><span class="${x.enabled ? "status-ok" : "status-warn"}">${x.enabled ? "启用" : "停用"}</span> · <span class="${st.cls}">${st.text}</span></div>
+    <div class="kv-line"><b>上次抓取</b>${x.last_fetch_at ? esc(x.last_fetch_at.slice(0, 16)) : "—"}</div>
+    <div class="kv-line"><b>列表页</b><a href="${esc(x.list_url)}" target="_blank" rel="noopener">${esc(x.list_url)}</a></div>
+    <div class="kv-line"><b>抓取方式</b>${esc(x.fetch_type || "html")}</div>
+    <div class="sec-title" style="margin-top:20px">编辑</div>
+    <div class="field"><label>名称</label><input id="ed-name" class="form-input" value="${esc(x.name)}"></div>
+    <div class="field"><label>列表页 URL</label><input id="ed-url" class="form-input" value="${esc(x.list_url)}"></div>
+    <div class="row">
+      <button class="btn primary" onclick="saveSource(${x.id})">保存</button>
+      <button class="btn" onclick="toggleSource(${x.id}, ${x.enabled ? "true" : "false"});closeDrawer();">${x.enabled ? "停用" : "启用"}</button>
+    </div>
+    <div class="sec-title" style="margin-top:20px">最近日志</div>
+    ${logs.length ? logs.map(l => `<div class="hint ${l.status === "ok" ? "status-ok" : "status-err"}" style="margin-bottom:4px">
+      ${esc(l.started_at.slice(5, 16))} · ${esc(l.status)} · 发现 ${l.found} / 入库 ${l.inserted}${l.error ? " · " + esc(l.error.slice(0, 80)) : ""}</div>`).join("")
+      : '<span class="none">最近 20 条日志中没有该源</span>'}
+  `);
 }
-async function reject(id) {
-  await fetch(`/api/admin/review/${id}`, {method: "DELETE", headers: H});
-  loadHeavy(); pollStats();
+async function saveSource(id) {
+  const body = {
+    name: document.getElementById("ed-name").value.trim(),
+    list_url: document.getElementById("ed-url").value.trim(),
+  };
+  if (!body.name || !body.list_url) { alert("名称和列表页 URL 不能为空"); return; }
+  const r = await fetch(`/api/admin/sources/${id}`, {method: "PUT", headers: H, body: JSON.stringify(body)});
+  if (r.ok) { closeDrawer(); flash("源站点已保存"); markDirty("sources"); }
+  else { alert("保存失败：" + ((await r.json()).detail || "未知错误")); }
+}
+
+/* ---- 抓取日志 ---- */
+function renderLogs(logs) {
+  document.getElementById("logs").innerHTML = (logs || []).map(l => `
+    <tr>
+      <td>${esc((l.started_at || "").slice(5, 16))}</td>
+      <td class="cell-ellipsis" title="${esc(nameOf(l.source_id))}">${esc(nameOf(l.source_id))}</td>
+      <td class="${l.status === "ok" ? "status-ok" : "status-err"}">${esc(l.status)}</td>
+      <td class="num">${l.found}</td><td class="num">${l.inserted}</td><td class="num">${l.duplicated}</td>
+      <td class="cell-ellipsis status-err" style="max-width:240px">${esc(l.error || "-")}</td>
+    </tr>`).join("") || '<tr><td colspan="7">暂无</td></tr>';
 }
 
 /* ---- 执行报告 ---- */
+function reportLine(x) {
+  return `<div class="report-line">
+    <a href="${esc(x.url)}" target="_blank" rel="noopener" style="font-size:13px">${esc(x.name)}</a>
+    <span class="hint">${esc(x.time)} · ${(x.size / 1024).toFixed(1)} KB</span>
+  </div>`;
+}
 async function loadReports() {
   try {
     const r = await api("/api/admin/reports");
     const list = r.reports || [];
-    document.getElementById("reports").innerHTML = list.length ? list.map(x => `
-      <div class="row" style="padding:7px 0;border-bottom:1px solid var(--border-2)">
-        <a href="${x.url}" target="_blank" rel="noopener" style="font-size:13px">${x.name}</a>
-        <span class="hint">${x.time} · ${(x.size / 1024).toFixed(1)} KB</span>
-        <span class="hint">HTML</span>
-      </div>`).join("") : '<span class="none">暂无报告，等待下一轮定时抓取</span>';
+    const head = list.slice(0, 12), rest = list.slice(12);
+    document.getElementById("reports").innerHTML = list.length
+      ? head.map(reportLine).join("") + (rest.length
+        ? `<details style="margin-top:8px"><summary>更早的报告（${rest.length} 份）</summary>${rest.map(reportLine).join("")}</details>`
+        : "")
+      : '<span class="none">暂无报告，等待下一轮定时抓取</span>';
   } catch (e) { /* 401 已在 api() 里处理 */ }
 }
 async function genReport() {
-  const btn = document.getElementById("btn-report");
-  btn.disabled = true; btn.textContent = "生成中…";
+  const btns = document.querySelectorAll(".report-btn");
+  btns.forEach(b => { b.disabled = true; b.textContent = "生成中…"; });
   try {
     const r = await fetch("/api/admin/generate-report", {method: "POST", headers: H});
     const d = await r.json();
-    document.getElementById("report-msg").textContent = d.message || (d.detail || "已启动");
-    setTimeout(loadReports, 2500);
-  } catch (e) {
-    document.getElementById("report-msg").textContent = "请求失败：" + e;
-  }
-  btn.disabled = false; btn.textContent = "立即生成并推送";
+    flash(r.ok ? (d.message || "已启动") : (d.detail || "操作被拒绝"));
+    if (r.ok) setTimeout(() => loadTab("reports", true), 2500);
+  } catch (e) { flash("请求失败：" + e); }
+  btns.forEach(b => { b.disabled = false; b.textContent = b.classList.contains("primary") ? "立即生成并推送" : "生成并推送报告"; });
 }
 
-pollStats(); loadHeavy(); loadReports();
-setInterval(pollStats, 2500);  // 常规 2.5 秒轮询；任务运行中会自动加速到 1.5 秒
+/* ---- 待复核：默认收起的紧凑列表 ---- */
+async function loadReview() {
+  const rq = await api("/api/admin/review-queue");
+  document.getElementById("review").innerHTML = rq.length ? rq.map(n => `
+    <details class="rev-row">
+      <summary>${esc(n.title)} <span class="status-warn" style="font-size:12px">置信度 ${esc(n.confidence)}</span>
+        <span class="hint">${esc(n.district || n.city || "")}</span></summary>
+      <div class="rev-body">
+        <p style="font-size:13px;color:var(--text-2);margin:10px 0;line-height:1.7"><b>摘要：</b>${esc(n.summary || "-")}</p>
+        <p style="font-size:13px;color:var(--text-2);margin:10px 0;line-height:1.7"><b>解读：</b>${esc(n.analysis || "-")}</p>
+        <div class="row">
+          <button class="btn primary" onclick="approve(${n.id})">通过</button>
+          <button class="btn danger-ghost" onclick="reject(${n.id})">标记失败（重置为待解读）</button>
+        </div>
+      </div>
+    </details>`).join("") : '<span class="none">没有待复核条目</span>';
+}
+async function approve(id) {
+  await fetch(`/api/admin/review/${id}`, {method: "POST", headers: H, body: JSON.stringify({})});
+  markDirty("review"); pollStats();
+}
+async function reject(id) {
+  await fetch(`/api/admin/review/${id}`, {method: "DELETE", headers: H});
+  markDirty("review"); pollStats();
+}
+
+/* 源清单同时是日志/概览的名称字典，启动加载一次；之后仅在数据变更后刷新 */
+loadSources().catch(() => { DIRTY.sources = true; });
+DIRTY.sources = false;
+setTab((location.hash || "#overview").slice(1));
+pollStats();
 </script>
 </body>
 </html>
