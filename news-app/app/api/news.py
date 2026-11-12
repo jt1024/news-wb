@@ -6,7 +6,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, joinedload
 
 from ..auth import require_auth
-from ..crawler.sources import AREA_LABELS
+from ..crawler.sources import AREA_LABELS, PROVINCE_LABELS
 from ..db import get_db
 from ..models import News, Source, Tag
 
@@ -18,6 +18,7 @@ def _brief(n: News) -> dict:
         "id": n.id,
         "title": n.title,
         "summary": n.ai_summary or (n.content_text[:120] if n.content_text else ""),
+        "province": n.region_province or "",
         "city": n.region_city,
         "district": n.region_district or "",
         "org": n.region_org or "",
@@ -35,6 +36,7 @@ def _brief(n: News) -> dict:
 
 @router.get("/api/news")
 def list_news(
+    province: str = "",
     city: str = "",
     district: str = "",
     level: str = "",
@@ -50,6 +52,8 @@ def list_news(
     db: Session = Depends(get_db),
 ):
     stmt = select(News).options(joinedload(News.source), joinedload(News.tags))
+    if province:
+        stmt = stmt.where(News.region_province == province)
     if city:
         stmt = stmt.where(News.region_city == city)
     if district:
@@ -117,6 +121,17 @@ async def interpret_single(news_id: int, db: Session = Depends(get_db)):
 @router.get("/api/meta")
 def meta(db: Session = Depends(get_db)):
     cities = [r[0] for r in db.execute(select(News.region_city).distinct()).all() if r[0]]
+    # 省份下拉从「启用源」取：新接入的省还没抓到文章时也要有选项；
+    # 国家级源的 province 是「全国」，不作为省份选项；港澳台地区用独立维度。
+    present_provinces = {
+        r[0] for r in db.execute(
+            select(Source.region_province).where(Source.enabled == True).distinct()  # noqa: E712
+        ).all()
+        if r[0] and r[0] != "全国"
+    }
+    provinces = [p for p in PROVINCE_LABELS if p in present_provinces] + sorted(
+        present_provinces - set(PROVINCE_LABELS)
+    )
     # 从源配置取而非新闻表：新接入的区还没抓到文章时，筛选下拉也要有选项
     districts = [r[0] for r in db.execute(select(Source.region_district).distinct()).all() if r[0]]
     orgs = [r[0] for r in db.execute(select(Source.region_org).distinct()).all() if r[0]]
@@ -128,7 +143,7 @@ def meta(db: Session = Depends(get_db)):
                 "district": s.region_district or "", "org": s.region_org or "",
                 "area": s.region_area or "", "level": s.level, "enabled": s.enabled}
                for s in db.execute(select(Source)).scalars()]
-    return {"cities": sorted(cities), "districts": sorted(districts),
+    return {"provinces": provinces, "cities": sorted(cities), "districts": sorted(districts),
             "orgs": sorted(orgs), "areas": areas, "tags": tags, "sources": sources,
             "types": [
                 {"key": "news", "label": "新闻动态"},

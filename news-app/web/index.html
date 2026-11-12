@@ -41,7 +41,7 @@
   <div class="brand">
     <span class="brand-mark">政</span>
     <h1>政务新闻聚合平台</h1>
-    <span class="brand-sub">广东 · 一期</span>
+    <span class="brand-sub">全国 · 省级扩展</span>
   </div>
   <nav class="site-nav">
     <a href="/trends.html">趋势分析</a>
@@ -60,6 +60,7 @@
       <option value="district">区县级</option>
       <option value="area">港澳台地区</option>
     </select>
+    <select id="f-province" title="省级行政区"><option value="">全部省份</option></select>
     <select id="f-org" title="国家部委 / 机构"><option value="">全部部委</option></select>
     <select id="f-area" title="港澳台地区"><option value="">全部地区</option></select>
     <select id="f-city"><option value="">全部地市</option></select>
@@ -103,16 +104,23 @@ function regionChips(n) {
     return `<span class="chip city">国家部委</span>${n.org ? `<span class="chip city">${esc(n.org)}</span>` : ""}`;
   if (n.level === "area")
     return `<span class="chip city">${esc(n.area || "港澳台地区")}</span>`;
-  return `<span class="chip city">${esc(n.city || "广东省")}</span>${n.district ? `<span class="chip city">${esc(n.district)}</span>` : ""}`;
+  /* 外省省级新闻 city 为空：必须显示省名，旧逻辑会一律回落成「广东省」 */
+  if (n.level === "province" && n.province && n.province !== "广东省")
+    return `<span class="chip city">${esc(n.province)}</span>`;
+  return `<span class="chip city">${esc(n.city || n.province || "广东省")}</span>${n.district ? `<span class="chip city">${esc(n.district)}</span>` : ""}`;
 }
 function regionText(n) {
   if (n.level === "national") return "国家部委" + (n.org ? " · " + esc(n.org) : "");
   if (n.level === "area") return esc(n.area || "港澳台地区");
-  return esc(n.city || "广东省") + (n.district ? " · " + esc(n.district) : "");
+  if (n.level === "province" && n.province && n.province !== "广东省")
+    return esc(n.province);
+  return esc(n.city || n.province || "广东省") + (n.district ? " · " + esc(n.district) : "");
 }
 
 async function loadMeta() {
   const r = await (await fetch("/api/meta", {headers: H})).json();
+  const province = document.getElementById("f-province");
+  (r.provinces || []).forEach(p => province.add(new Option(p, p)));
   const city = document.getElementById("f-city");
   r.cities.forEach(c => city.add(new Option(c, c)));
   const district = document.getElementById("f-district");
@@ -129,7 +137,7 @@ async function loadMeta() {
 
 function filterQuery() {
   const p = new URLSearchParams();
-  const map = {level: "f-level", org: "f-org", area: "f-area", city: "f-city", district: "f-district", type: "f-type", tag: "f-tag", start: "f-start", end: "f-end", q: "f-q"};
+  const map = {level: "f-level", province: "f-province", org: "f-org", area: "f-area", city: "f-city", district: "f-district", type: "f-type", tag: "f-tag", start: "f-start", end: "f-end", q: "f-q"};
   for (const [k, id] of Object.entries(map)) {
     const v = document.getElementById(id).value;
     if (v) p.set(k === "type" ? "type" : k, v);
@@ -232,28 +240,38 @@ function closeDialog() { document.getElementById("mask").classList.remove("open"
 document.addEventListener("keydown", e => { if (e.key === "Escape") closeDialog(); });
 
 function resetFilters() {
-  ["f-level","f-org","f-area","f-city","f-district","f-type","f-tag","f-start","f-end","f-q"].forEach(id => document.getElementById(id).value = "");
+  ["f-level","f-province","f-org","f-area","f-city","f-district","f-type","f-tag","f-start","f-end","f-q"].forEach(id => document.getElementById(id).value = "");
   syncFilters();
   load(1);
 }
 /* 层级联动：国家级源没有地市/区县，省级源没有地市；港澳台地区用独立地区维度，
-   与广东省地市体系互斥。选定部委/地区时自动切到对应层级，避免筛出空结果。 */
+   与广东省地市体系互斥。选定部委/地区时自动切到对应层级，避免筛出空结果。
+   外省只有省级源且 city 为空，选中外省时禁用地市/区县并自动切到省级。 */
 function syncFilters() {
   const lvl = document.getElementById("f-level").value;
+  const province = document.getElementById("f-province");
+  province.disabled = lvl === "national" || lvl === "area";
+  if (province.disabled) province.value = "";
   const org = document.getElementById("f-org");
   org.disabled = lvl !== "" && lvl !== "national";
   if (org.disabled) org.value = "";
   const area = document.getElementById("f-area");
   area.disabled = lvl !== "" && lvl !== "area";
   if (area.disabled) area.value = "";
+  const outside = province.value && province.value !== "广东省";
   const city = document.getElementById("f-city");
-  city.disabled = lvl === "national" || lvl === "province" || lvl === "area";
+  city.disabled = lvl === "national" || lvl === "province" || lvl === "area" || !!outside;
   if (city.disabled) city.value = "";
   const d = document.getElementById("f-district");
   d.disabled = city.disabled || (city.value && city.value !== "广州市");
   if (d.disabled) d.value = "";
 }
 ["f-level", "f-city"].forEach(id => document.getElementById(id).addEventListener("change", syncFilters));
+document.getElementById("f-province").addEventListener("change", e => {
+  if (e.target.value && e.target.value !== "广东省" && !document.getElementById("f-level").value)
+    document.getElementById("f-level").value = "province";
+  syncFilters();
+});
 document.getElementById("f-org").addEventListener("change", e => {
   if (e.target.value) document.getElementById("f-level").value = "national";
   syncFilters();

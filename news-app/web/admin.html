@@ -312,7 +312,7 @@ function staleInfo(x) {
 function isAbnormal(x) { return staleInfo(x).cls === "status-warn"; }
 function belongLabel(x, level) {
   if (level === "national") return `<span class="chip neutral">国家部委</span> ${esc(x.org || "—")}`;
-  if (level === "province") return `<span class="chip neutral">省级</span> 广东省`;
+  if (level === "province") return `<span class="chip neutral">省级</span> ${esc(x.province || "广东省")}`;
   if (level === "district") return `<span class="chip city">广州市</span> ${esc(x.district || "—")}`;
   if (level === "area") return `<span class="chip city">${esc(x.area || "港澳台地区")}</span>`;
   return `<span class="chip city">${esc(x.city || "—")}</span>`;
@@ -325,7 +325,7 @@ function filteredSources() {
     if (st === "disabled" && x.enabled) return false;
     if (st === "stale" && !isAbnormal(x)) return false;
     if (!q) return true;
-    return [x.name, x.city, x.district, x.org, x.area, x.list_url]
+    return [x.name, x.province, x.city, x.district, x.org, x.area, x.list_url]
       .some(v => String(v || "").toLowerCase().includes(q));
   });
 }
@@ -487,6 +487,7 @@ function openAddSource() {
       <option value="area">港澳台地区</option>
     </select></div>
     <div class="field" data-lvl="city"><label>地市</label><input id="ns-city" class="form-input" placeholder="如：广州市"></div>
+    <div class="field" data-lvl="province" style="display:none"><label>省份</label><input id="ns-province" class="form-input" placeholder="如：浙江省；留空默认广东省"></div>
     <div class="field" data-lvl="district"><label>区县</label><input id="ns-district" class="form-input" placeholder="如：天河区"></div>
     <div class="field" data-lvl="national" style="display:none"><label>部委 / 机构</label><input id="ns-org" class="form-input" placeholder="如：国家发展改革委"></div>
     <div class="field" data-lvl="area" style="display:none"><label>港澳台地区</label><input id="ns-area" class="form-input" placeholder="中国香港 / 中国澳门 / 中国台湾 / 港澳综合"></div>
@@ -505,6 +506,7 @@ async function addSource() {
   const body = {
     name: val("ns-name"), level: level, list_url: val("ns-url"), fetch_type: "html",
     city: level === "city" ? val("ns-city") : "",
+    province: level === "province" ? val("ns-province") : "",
     district: level === "district" ? val("ns-district") : "",
     org: level === "national" ? val("ns-org") : "",
     area: level === "area" ? val("ns-area") : "",

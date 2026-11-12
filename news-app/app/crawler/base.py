@@ -235,8 +235,12 @@ class Fetcher:
 
     # 极少数站点尚未启用 https（实测 https 握手直接失败），保留明文访问。
     # 海关总署的 https 是自签证书链且回 504，只有 http 明文能返回完整页面。
+    # 山东 / 广西 / 青海三个省级门户在本机 https 分别报 SSLV3 握手失败、
+    # SNI unrecognized name、连接超时；curl 走 http 明文均稳定 200。
     HTTP_ONLY_HOSTS = {"www.maoming.gov.cn", "www.jieyang.gov.cn",
-                       "gd.tobacco.gov.cn", "www.customs.gov.cn"}
+                       "gd.tobacco.gov.cn", "www.customs.gov.cn",
+                       "www.shandong.gov.cn", "www.gxzf.gov.cn",
+                       "www.qinghai.gov.cn"}
 
     @staticmethod
     def _prefer_https(url: str) -> str:

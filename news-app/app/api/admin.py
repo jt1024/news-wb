@@ -124,7 +124,8 @@ def scheduler_status():
 @router.get("/sources")
 def list_sources(db=Depends(get_db)):
     sources = db.execute(select(Source)).scalars().all()
-    return [{"id": s.id, "name": s.name, "city": s.region_city,
+    return [{"id": s.id, "name": s.name, "province": s.region_province or "",
+             "city": s.region_city,
              "district": s.region_district or "", "org": s.region_org or "",
              "area": s.region_area or "", "level": s.level,
              "list_url": s.list_url, "fetch_type": s.fetch_type, "enabled": s.enabled,
@@ -143,9 +144,11 @@ def create_source(body: dict, db=Depends(get_db)):
         name=body["name"],
         region_city=body.get("city", ""),
         region_district=body.get("district", "") or "",
-        # 港澳台地区不属于广东省，province 必须留空，否则会污染省级统计口径
+        # 港澳台地区不属于任何省，province 必须留空，否则会污染省级统计口径；
+        # 省级源可显式指定省份（外省扩容），缺省仍是广东省。
         region_province=("" if body.get("level") == "area"
-                         else "全国" if body.get("level") == "national" else "广东省"),
+                         else "全国" if body.get("level") == "national"
+                         else body.get("province") or "广东省"),
         region_org=body.get("org", "") or "",
         region_area=body.get("area", "") or "",
         level=body.get("level", "city"),

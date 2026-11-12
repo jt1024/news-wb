@@ -49,6 +49,7 @@ def policy_chains(db, start, limit: int = 6) -> dict:
                 JOIN news_tags nt ON nt.news_id = n.id
                 JOIN tags t ON t.id = nt.tag_id
                 WHERE n.publish_time >= :start AND t.name != '其他' AND n.level != 'area'
+                  AND (n.level != 'province' OR n.region_province IN ('广东省',''))
                 ORDER BY n.publish_time DESC"""),
         {"start": start},
     ).all()
@@ -112,6 +113,7 @@ def city_topic_matrix(db, start, topics: list[str], cities: list[str]) -> dict:
                 JOIN tags t ON t.id = nt.tag_id
                 WHERE n.publish_time >= :start AND t.name IN :topics
                   AND n.level NOT IN ('national','area')
+                  AND (n.level != 'province' OR n.region_province IN ('广东省',''))
                 GROUP BY t.name, n.region_city""").bindparams(
             bindparam("topics", expanding=True)
         ),

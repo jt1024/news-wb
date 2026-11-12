@@ -80,11 +80,15 @@ def is_duplicate(db: Session, source: Source, url_h: str, t_hash: str, title: st
     district = getattr(source, "region_district", "") or ""
     # 港澳台地区源的 city/district 都为空，必须再按 region_area 收窄，
     # 否则三个地区会共享同一命名空间，跨地区同名通稿会被误判成重复。
+    # 同理，27 个外省省级源都是 level=province + city/district 为空，
+    # 必须按 region_province 收窄，否则「纪念孙中山先生诞辰160周年大会在京举行」
+    # 这类中央通稿只会留下最先抓到的那一个省。
     area = getattr(source, "region_area", "") or ""
     if db.execute(
         select(News.id).where(
             News.title_hash == t_hash,
             News.level == source.level,
+            News.region_province == source.region_province,
             News.region_city == source.region_city,
             News.region_district == district,
             News.region_area == area,

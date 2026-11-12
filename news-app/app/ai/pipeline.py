@@ -16,7 +16,7 @@ from .client import AIQuotaError, AIRateLimitError, chat
 log = logging.getLogger("ai.pipeline")
 
 PROMPT_SYSTEM = (
-    "你是广东省政务政策分析专家。对给定的政务新闻输出严格 JSON，字段："
+    "你是中国政务政策分析专家。对给定的政务新闻输出严格 JSON，字段："
     'summary(一句话摘要，80字内)；'
     'key_points(3-5条核心要点，每条是一个可读的自然语言句子，40字内，'
     "把政策对象、关键措施、时间节点、涉及金额自然地写进句子里；"
@@ -57,9 +57,12 @@ def pick_model(news: News) -> str:
 
 def build_prompt(news: News) -> str:
     tags_hint = "、".join(ALLOWED_TAGS)
+    # 外省省级新闻 region_city 为空，只写 city 会让来源变成「（，发布于…）」，
+    # 也会让模型误按广东口径解读；按 市 > 省 > 全国 的顺序补全归属。
+    place = news.region_city or news.region_province or "全国"
     return (
         f"标题：{news.title}\n"
-        f"来源：{news.source.name}（{news.region_city}，发布于 {news.publish_time or '未知'}）\n"
+        f"来源：{news.source.name}（{place}，发布于 {news.publish_time or '未知'}）\n"
         f"正文：\n{news.content_text[:4000]}\n\n"
         f"可选主题标签：{tags_hint}"
     )

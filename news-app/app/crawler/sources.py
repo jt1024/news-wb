@@ -1,9 +1,13 @@
-"""源站点配置：广东省 / 国家部委 / 港澳台地区。首次启动时按名称幂等入库。
+"""源站点配置：广东省 / 国家部委 / 港澳台地区 / 其他省级单位。首次启动时按名称幂等入库。
 
 港澳台地区使用独立的 region_area 维度与 level="area"，不写 region_city，
 避免污染广东省地市榜、趋势与周月报统计；标签一律采用规范表述。
+其他省级单位定义在 province_sources.py，统一 level="province" + region_province，
+广东省口径的统计会单独排除外省省级新闻。
 """
 from __future__ import annotations
+
+from .province_sources import PROVINCE_LABELS, PROVINCE_SOURCES  # noqa: F401
 
 # 港澳台地区分组（固定展示顺序）。「港澳综合」收中央港澳工作部门的跨地区稿件。
 AREA_LABELS = ("中国香港", "中国澳门", "中国台湾", "港澳综合")
@@ -717,3 +721,7 @@ SEED_SOURCES = [
         "selector_config": {"item": "a", "skip_ai": True},
     },
 ]
+
+# ===== 广东以外省级行政单位（2026-11-13 接入，27 启用 / 3 待接入）=====
+# 单独放一个模块，避免本文件继续随扩源线性膨胀；seed_sources() 按 name 幂等入库。
+SEED_SOURCES.extend(PROVINCE_SOURCES)

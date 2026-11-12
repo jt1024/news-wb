@@ -65,13 +65,27 @@ def _area_expr(conn, alias, table):
     return f"NULLIF({alias}.region_area,'')" if "region_area" in cols else "NULL"
 
 
+def _province_expr(conn, alias, table):
+    """外省省级单位的归属名；广东省/国家级/港澳台返回 NULL，交给后续 COALESCE。
+
+    同样做列探测：watchdog 可能在服务迁移 schema 之前独立跑报告。
+    """
+    cols = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+    if "region_province" not in cols:
+        return "NULL"
+    return (f"CASE WHEN {alias}.region_province NOT IN ('广东省','','全国') "
+            f"THEN {alias}.region_province ELSE NULL END")
+
+
 def load_round(conn, key, lo, hi):
     src_area = _area_expr(conn, "s", "sources")
+    src_province = _province_expr(conn, "s", "sources")
     news_area = _area_expr(conn, "n", "news")
+    news_province = _province_expr(conn, "n", "news")
     logs = conn.execute(
         f"""SELECT f.id, f.started_at, f.finished_at, f.status, f.found, f.inserted,
                   f.duplicated, f.error, s.name,
-                  COALESCE({src_area}, NULLIF(s.region_org,''),
+                  COALESCE({src_area}, NULLIF(s.region_org,''), {src_province},
                            NULLIF(s.region_city,''), '广东省')
            FROM fetch_logs f LEFT JOIN sources s ON s.id = f.source_id
            WHERE f.started_at >= ? AND f.started_at <= ? ORDER BY f.id""",
@@ -93,7 +107,7 @@ def load_round(conn, key, lo, hi):
 
     news = conn.execute(
         f"""SELECT n.title,
-                  COALESCE({news_area}, NULLIF(n.region_org,''),
+                  COALESCE({news_area}, NULLIF(n.region_org,''), {news_province},
                            NULLIF(n.region_city,''), '广东省'),
                   n.publish_time, n.status, n.ai_error, s.name
            FROM news n LEFT JOIN sources s ON s.id = n.source_id
