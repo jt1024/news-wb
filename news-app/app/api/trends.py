@@ -32,15 +32,16 @@ def trends(days: int = Query(30, ge=7, le=365), db: Session = Depends(get_db)):
     d14 = now - timedelta(days=14)
 
     # 口径：本页只统计广东省 + 国家部委。港澳台地区（level='area'）与
-    # 广东以外省级单位（level='province' 且 region_province 不是广东省）的
-    # region_city 都为空，若混进来会被 COALESCE 映射成「广东省」并挤占地市榜首，
-    # 因此两类都从本页全部指标中剔除；外省新闻请在前台按「省份」筛选查看。
+    # 广东以外行政单位（level IN ('province','city','district') 且 region_province
+    # 不是广东省）都从本页全部指标中剔除——外省省级 region_city 为空会被 COALESCE
+    # 映射成「广东省」挤占榜首，外省地级市（山东/辽宁各市）region_city 非空更会
+    # 直接混进地市榜。两类均按 region_province 排除；外省新闻请按「省份」筛选查看。
     # ---- 1. 每日发布量 ----
     daily = [
         {"date": r.d, "n": r.n}
         for r in db.execute(
             text("""SELECT date(publish_time) d, count(*) n
-                    FROM news WHERE publish_time >= :start AND level != 'area' AND (level != 'province' OR region_province IN ('广东省',''))
+                    FROM news WHERE publish_time >= :start AND level != 'area' AND (level NOT IN ('province','city','district') OR region_province IN ('广东省',''))
                     GROUP BY d ORDER BY d"""),
             {"start": start},
         )
@@ -54,7 +55,7 @@ def trends(days: int = Query(30, ge=7, le=365), db: Session = Depends(get_db)):
         for r in db.execute(
             text("""SELECT region_city c, count(*) n
                     FROM news WHERE publish_time >= :start AND level NOT IN ('national','area')
-                      AND (level != 'province' OR region_province IN ('广东省',''))
+                      AND (level NOT IN ('province','city','district') OR region_province IN ('广东省',''))
                     GROUP BY region_city ORDER BY n DESC"""),
             {"start": start},
         )
@@ -70,7 +71,7 @@ def trends(days: int = Query(30, ge=7, le=365), db: Session = Depends(get_db)):
         {"type": r.ctype, "label": TYPE_LABEL.get(r.ctype, r.ctype), "n": r.n}
         for r in db.execute(
             text("""SELECT content_type ctype, count(*) n
-                    FROM news WHERE publish_time >= :start AND level != 'area' AND (level != 'province' OR region_province IN ('广东省',''))
+                    FROM news WHERE publish_time >= :start AND level != 'area' AND (level NOT IN ('province','city','district') OR region_province IN ('广东省',''))
                     GROUP BY content_type ORDER BY n DESC"""),
             {"start": start},
         )
@@ -82,7 +83,7 @@ def trends(days: int = Query(30, ge=7, le=365), db: Session = Depends(get_db)):
                 FROM news_tags nt
                 JOIN tags t ON t.id = nt.tag_id
                 JOIN news ON news.id = nt.news_id
-                WHERE news.publish_time >= :start AND news.level != 'area' AND (news.level != 'province' OR news.region_province IN ('广东省',''))
+                WHERE news.publish_time >= :start AND news.level != 'area' AND (news.level NOT IN ('province','city','district') OR news.region_province IN ('广东省',''))
                 GROUP BY t.name ORDER BY n DESC LIMIT 8"""),
         {"start": start},
     ).all()
@@ -94,7 +95,7 @@ def trends(days: int = Query(30, ge=7, le=365), db: Session = Depends(get_db)):
                     FROM news_tags nt
                     JOIN tags t ON t.id = nt.tag_id
                     JOIN news ON news.id = nt.news_id
-                    WHERE news.publish_time >= :start AND news.level != 'area' AND (news.level != 'province' OR news.region_province IN ('广东省','')) AND t.name IN :names
+                    WHERE news.publish_time >= :start AND news.level != 'area' AND (news.level NOT IN ('province','city','district') OR news.region_province IN ('广东省','')) AND t.name IN :names
                     GROUP BY t.name, d ORDER BY d""").bindparams(
                 bindparam("names", expanding=True)
             ),
@@ -120,7 +121,7 @@ def trends(days: int = Query(30, ge=7, le=365), db: Session = Depends(get_db)):
                 FROM news_tags nt
                 JOIN tags t ON t.id = nt.tag_id
                 JOIN news ON news.id = nt.news_id
-                WHERE news.publish_time >= :d14 AND news.level != 'area' AND (news.level != 'province' OR news.region_province IN ('广东省',''))
+                WHERE news.publish_time >= :d14 AND news.level != 'area' AND (news.level NOT IN ('province','city','district') OR news.region_province IN ('广东省',''))
                 GROUP BY t.name
                 HAVING (sum(CASE WHEN news.publish_time >= :d7 THEN 1 ELSE 0 END)
                         + sum(CASE WHEN news.publish_time >= :d14 AND news.publish_time < :d7 THEN 1 ELSE 0 END)) >= 2
@@ -143,7 +144,7 @@ def trends(days: int = Query(30, ge=7, le=365), db: Session = Depends(get_db)):
     )[:10]
 
     total = db.execute(
-        text("SELECT count(*) FROM news WHERE publish_time >= :start AND level != 'area' AND (level != 'province' OR region_province IN ('广东省',''))"),
+        text("SELECT count(*) FROM news WHERE publish_time >= :start AND level != 'area' AND (level NOT IN ('province','city','district') OR region_province IN ('广东省',''))"),
         {"start": start},
     ).scalar()
 

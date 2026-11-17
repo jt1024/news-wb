@@ -240,7 +240,13 @@ class Fetcher:
     HTTP_ONLY_HOSTS = {"www.maoming.gov.cn", "www.jieyang.gov.cn",
                        "gd.tobacco.gov.cn", "www.customs.gov.cn",
                        "www.shandong.gov.cn", "www.gxzf.gov.cn",
-                       "www.qinghai.gov.cn"}
+                       "www.qinghai.gov.cn",
+                       # 山东/辽宁地级市门户：证书域名不匹配或 https 握手失败，
+                       # 必须走 http 明文（2026-11-17 实测，均 http 200 / https 000）
+                       "www.rizhao.gov.cn", "www.zaozhuang.gov.cn",
+                       "www.dongying.gov.cn", "www.liaocheng.gov.cn",
+                       "www.binzhou.gov.cn", "www.heze.gov.cn",
+                       "www.anshan.gov.cn", "www.liaoyang.gov.cn"}
 
     @staticmethod
     def _prefer_https(url: str) -> str:
@@ -360,6 +366,19 @@ class Fetcher:
             async with self._client() as client:
                 raw = await self.get(client, api)
             return self._parse_json_list(raw)[:max_items]
+        if self.source.fetch_type == "html_api":
+            # 列表 HTML 片段嵌在 JSON 接口里（济南 jpaas /front/page/build/unit）：
+            # 取 data.html（html_path 可配置）当列表页解析；片段里的相对链接
+            # 用 list_base 拼接，不能用 API URL 本身。
+            api = (self.selectors.get("list_api") or self.source.list_url)
+            async with self._client() as client:
+                raw = await self.get(client, api)
+            fragment = self._extract_api_html(raw)
+            if not fragment:
+                return []
+            list_base = (self.selectors.get("list_base")
+                         or self.source.base_url or self.source.list_url)
+            return self._parse_list(fragment, list_base=list_base)[:max_items]
         async with self._client() as client:
             html = await self.get(client, self.source.list_url)
         if self.source.fetch_type == "rss":
@@ -423,6 +442,27 @@ class Fetcher:
             items.append(ListItem(url=url, title=title, publish_time=pub))
         return items
 
+    @staticmethod
+    def _extract_api_html(raw: str) -> str:
+        """从 JSON 接口响应里取出内嵌的列表 HTML 片段（济南 jpaas 等）。
+
+        默认取 data.html；可用 selector_config.json_path 指定点分路径，
+        例如 "data.html"、"result.content"。取不到时返回空串。
+        """
+        import json
+
+        try:
+            data = json.loads(raw)
+        except (ValueError, TypeError):
+            return ""
+        node = data
+        for key in ("data", "html"):
+            if isinstance(node, dict):
+                node = node.get(key)
+            else:
+                return ""
+        return node if isinstance(node, str) else ""
+
     def _parse_rss(self, xml: str) -> list[ListItem]:
         import feedparser
 
@@ -437,23 +477,49 @@ class Fetcher:
             items.append(ListItem(url=e.link, title=e.title, publish_time=published))
         return items
 
-    def _parse_list(self, html: str) -> list[ListItem]:
+    def _parse_list(self, html: str, list_base: str = "") -> list[ListItem]:
+        # html_api 场景片段里的相对链接要按真实栏目页拼接，不能用 API URL。
+        link_base = list_base or self.source.list_url
         soup = BeautifulSoup(html, "lxml")
         sel = self.selectors.get("item") or "a"
+        nodes = list(soup.select(sel))
+        # TRS WCM / jpage 站点（山东日照、泰安、威海等）把首屏列表放在
+        # <script> 里的 <recordset><![CDATA[<li><a href=...>标题</a></li>]]>
+        # 中，lxml 不会把 CDATA 里的 <a> 解析成元素，普通 select 拿到 0 条。
+        # 常规 DOM 里若没有可识别的文章链接（导航/栏目 <a> 不算），补解析 CDATA
+        # 片段，交给下面同一套过滤逻辑。判定用「文章链接数」而非 <a> 总数：
+        # 这些站导航 <a> 常有几十个，但正文列表全在 CDATA 里。
+        def _article_href_count(ns) -> int:
+            n = 0
+            for a in ns:
+                href = (a.get("href") or "").strip()
+                if not re.search(r"(post_|content/|content_\d+|art/|\.(html|shtml|htm)$)", href):
+                    continue
+                # 栏目首页 index.html 不是文章，不计入（导航链接都是这类）
+                if re.search(r"/index(_\d+)?\.(html?|shtml|htm)$", href, re.I):
+                    continue
+                n += 1
+            return n
+
+        if _article_href_count(nodes) < 5 and "<![CDATA[" in html:
+            for block in re.findall(r"<!\[CDATA\[(.*?)\]\]>", html, re.S):
+                if "<a" not in block:
+                    continue
+                nodes.extend(BeautifulSoup(block, "lxml").select(sel))
         seen, items = set(), []
-        for a in soup.select(sel):
+        for a in nodes:
             # 部分站点（如增城）链接写成 href=" http://..."，前导空格会让
             # urljoin 产出带空格的 URL，后续 httpx 报 UnsupportedProtocol。
             href = (a.get("href") or "").strip()
             title = _clean_title(a.get("title") or a.get_text())
             if not href or not title or len(title) < 8:
                 continue
-            url = self._prefer_https(urljoin(self.source.list_url, href))
+            url = self._prefer_https(urljoin(link_base, href))
             if not same_site(url, self.source.base_url or self.source.list_url):
                 continue
             # 中央部委站大量使用 .htm 后缀（财政部 / 农业农村部 / 中国政府网），
             # 旧规则只认 .html|.shtml，会把整页新闻全部滤掉。
-            if not re.search(r"(post_|content/|art/|\.(html|shtml|htm)$)", url):
+            if not re.search(r"(post_|content/|content_\d+|art/|\.(html|shtml|htm)$)", url):
                 continue
             # 栏目首页（/index.html、/index_2.html 等）不是新闻详情，
             # 抓进来只会得到机构名标题 + 空正文，直接排除。
@@ -535,11 +601,16 @@ class Fetcher:
     def _extract_detail(self, html: str) -> Detail:
         soup = BeautifulSoup(html, "lxml")
         pub = _detail_publish_date(soup, html)
-        for t in soup(["script", "style", "nav", "header", "footer", "iframe", "form"]):
+        # 有显式 content 选择器时保留 <form>：临沂等站把正文放在 form 容器内，
+        # 一律 decompose form 会把正文一起删掉。无自定义选择器时仍按原样清理。
+        custom_content = self.selectors.get("content")
+        strip_tags = ["script", "style", "nav", "header", "footer", "iframe"]
+        if not custom_content:
+            strip_tags.append("form")
+        for t in soup(strip_tags):
             t.decompose()
 
         node = None
-        custom_content = self.selectors.get("content")
         for sel in (
             custom_content,
             "#zoom", "#zoombox", "#ivs_content", ".TRS_Editor",

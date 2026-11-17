@@ -48,43 +48,44 @@ def collect(period: str, today: date | None = None) -> dict:
             return conn.execute(sql, args).fetchone()[0]
 
         # 周/月报口径为广东省 + 国家部委；港澳台地区（level='area'）与
-        # 广东以外省级单位（level='province' 且 region_province 不是广东省）单独成体系，
-        # 不进入本报告的篇数、类型、代表文章与待解读统计，避免口径混用。
-        # 外省省级新闻 region_city 为空，混进来会被显示成「广东省」。
+        # 广东以外省级单位单独成体系（level IN ('province','city','district')
+        # 且 region_province 不是广东省），不进入本报告的篇数、类型、代表文章与
+        # 待解读统计，避免口径混用。外省地级市（如山东/辽宁各市）region_city 非空，
+        # 若不按 region_province 剔除会混进「广东省」地市榜。外省新闻请按省份筛选查看。
         total = one("SELECT COUNT(*) FROM news WHERE date(publish_time)>=? AND date(publish_time)<? "
-                    "AND level!='area' AND (level!='province' OR region_province IN ('广东省',''))", (s, e))
+                    "AND level!='area' AND (level NOT IN ('province','city','district') OR region_province IN ('广东省',''))", (s, e))
         prev_total = one("SELECT COUNT(*) FROM news WHERE date(publish_time)>=? AND date(publish_time)<? "
-                         "AND level!='area' AND (level!='province' OR region_province IN ('广东省',''))", (prev_s, s))
+                         "AND level!='area' AND (level NOT IN ('province','city','district') OR region_province IN ('广东省',''))", (prev_s, s))
         interpreted = one("SELECT COUNT(*) FROM news WHERE date(publish_time)>=? AND date(publish_time)<? "
-                          "AND status='interpreted' AND level!='area' AND (level!='province' OR region_province IN ('广东省',''))", (s, e))
+                          "AND status='interpreted' AND level!='area' AND (level NOT IN ('province','city','district') OR region_province IN ('广东省',''))", (s, e))
         city_count = one("SELECT COUNT(DISTINCT region_city) FROM news WHERE date(publish_time)>=? "
-                         "AND date(publish_time)<? AND region_city!=''", (s, e))
+                         "AND date(publish_time)<? AND region_city!='' AND region_province='广东省'", (s, e))
         # 国家级新闻 region_city 为空，不能混进「广东省」或地市榜
         national_count = one("SELECT COUNT(*) FROM news WHERE date(publish_time)>=? "
                              "AND date(publish_time)<? AND level='national'", (s, e))
         cities = [{"city": r[0] or "广东省", "n": r[1]} for r in conn.execute(
             "SELECT region_city, COUNT(*) n FROM news WHERE date(publish_time)>=? AND date(publish_time)<? "
-            "AND region_city!='' GROUP BY region_city ORDER BY n DESC LIMIT 10", (s, e))]
+            "AND region_city!='' AND region_province='广东省' GROUP BY region_city ORDER BY n DESC LIMIT 10", (s, e))]
         topics = [{"tag": r[0], "n": r[1]} for r in conn.execute(
             "SELECT t.name, COUNT(*) n FROM news_tags nt JOIN tags t ON t.id=nt.tag_id "
             "JOIN news n ON n.id=nt.news_id WHERE date(n.publish_time)>=? AND date(n.publish_time)<? "
-            "AND n.level!='area' AND (n.level!='province' OR n.region_province IN ('广东省','')) "
+            "AND n.level!='area' AND (n.level NOT IN ('province','city','district') OR n.region_province IN ('广东省','')) "
             "GROUP BY t.name ORDER BY n DESC LIMIT 8", (s, e))]
         types = [{"label": TYPE_LABEL.get(r[0], r[0]), "n": r[1]} for r in conn.execute(
             "SELECT content_type, COUNT(*) n FROM news WHERE date(publish_time)>=? AND date(publish_time)<? "
-            "AND level!='area' AND (level!='province' OR region_province IN ('广东省','')) GROUP BY content_type ORDER BY n DESC", (s, e))]
+            "AND level!='area' AND (level NOT IN ('province','city','district') OR region_province IN ('广东省','')) GROUP BY content_type ORDER BY n DESC", (s, e))]
         # 政策类优先的代表文章；不足 8 条用最新新闻补齐
         picks = list(conn.execute(
             "SELECT title, COALESCE(NULLIF(region_org,''), NULLIF(region_city,''), '广东省'), "
             "substr(publish_time,1,10), url, content_type FROM news "
-            "WHERE date(publish_time)>=? AND date(publish_time)<? AND level!='area' AND (level!='province' OR region_province IN ('广东省','')) "
+            "WHERE date(publish_time)>=? AND date(publish_time)<? AND level!='area' AND (level NOT IN ('province','city','district') OR region_province IN ('广东省','')) "
             "AND content_type IN ('policy','notice','interpretation') "
             "ORDER BY publish_time DESC LIMIT 8", (s, e)))
         if len(picks) < 8:
             picks += list(conn.execute(
                 "SELECT title, COALESCE(NULLIF(region_org,''), NULLIF(region_city,''), '广东省'), "
                 "substr(publish_time,1,10), url, content_type FROM news "
-                "WHERE date(publish_time)>=? AND date(publish_time)<? AND level!='area' AND (level!='province' OR region_province IN ('广东省','')) "
+                "WHERE date(publish_time)>=? AND date(publish_time)<? AND level!='area' AND (level NOT IN ('province','city','district') OR region_province IN ('广东省','')) "
                 "AND content_type NOT IN ('policy','notice','interpretation') "
                 "ORDER BY publish_time DESC LIMIT ?", (s, e, 8 - len(picks))))
         # 与本周期相比的上升主题
@@ -94,7 +95,7 @@ def collect(period: str, today: date | None = None) -> dict:
             prev_n = one(
                 "SELECT COUNT(*) FROM news_tags nt JOIN tags t ON t.id=nt.tag_id "
                 "JOIN news n ON n.id=nt.news_id WHERE t.name=? AND date(n.publish_time)>=? AND date(n.publish_time)<? "
-                "AND n.level!='area' AND (n.level!='province' OR n.region_province IN ('广东省',''))",
+                "AND n.level!='area' AND (n.level NOT IN ('province','city','district') OR n.region_province IN ('广东省',''))",
                 (tag, prev_s, s))
             rising.append({"tag": tag, "n": n, "delta": n - prev_n})
         rising.sort(key=lambda x: x["delta"], reverse=True)
@@ -103,7 +104,7 @@ def collect(period: str, today: date | None = None) -> dict:
             "COALESCE(SUM(CASE WHEN status!='ok' THEN 1 ELSE 0 END),0) FROM fetch_logs "
             "WHERE date(started_at)>=? AND date(started_at)<?", (s, e)).fetchone()
         # 港澳台地区稿件 status='skipped'（不做 AI 解读），不能算作待解读积压
-        pending = one("SELECT COUNT(*) FROM news WHERE status!='interpreted' AND level!='area' AND (level!='province' OR region_province IN ('广东省',''))")
+        pending = one("SELECT COUNT(*) FROM news WHERE status!='interpreted' AND level!='area' AND (level NOT IN ('province','city','district') OR region_province IN ('广东省',''))")
         ai_err = one("SELECT COUNT(*) FROM news WHERE ai_error IS NOT NULL AND ai_error!=''")
         all_total = one("SELECT COUNT(*) FROM news")
         # 报告副标题的源规模从库里现查，避免每次扩源都要回来改硬编码数字

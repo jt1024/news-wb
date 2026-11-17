@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 from .province_sources import PROVINCE_LABELS, PROVINCE_SOURCES  # noqa: F401
+from .province_city_sources import PROVINCE_CITY_SOURCES  # noqa: F401
 
 # 港澳台地区分组（固定展示顺序）。「港澳综合」收中央港澳工作部门的跨地区稿件。
 AREA_LABELS = ("中国香港", "中国澳门", "中国台湾", "港澳综合")
@@ -725,3 +726,8 @@ SEED_SOURCES = [
 # ===== 广东以外省级行政单位（2026-11-13 接入，27 启用 / 3 待接入）=====
 # 单独放一个模块，避免本文件继续随扩源线性膨胀；seed_sources() 按 name 幂等入库。
 SEED_SOURCES.extend(PROVINCE_SOURCES)
+
+# ===== 山东 / 辽宁地级市（2026-11-17 接入，24 市）=====
+# level="city" + region_city=地级市，统计口径已按 region_province 排除，
+# 不混入广东省地市榜；seed_sources() 按 name 幂等入库。
+SEED_SOURCES.extend(PROVINCE_CITY_SOURCES)
