@@ -7,9 +7,10 @@
   * 每省只接 1 个省政府门户「要闻 / 政务动态」栏目，避免与国家级通稿重复堆叠；
   * 山东、广西、青海的 https 在本机 TLS 握手失败，只能用 http 明文，
     这三个域名必须留在 Fetcher.HTTP_ONLY_HOSTS 里，否则会被自动升级成 https；
-  * 江西 / 湖北 / 甘肃 建档但 enabled=False，原因逐条写在下面。
+  * 江西 / 湖北 / 甘肃 三个原「待接入」源已于 2026-11-17 攻克并启用，
+    接入方式逐条写在各自配置上方（江西 POST JSON 接口、湖北/甘肃 创宇盾 412）。
 
-所有 27 个启用源均已用项目 Fetcher 实测：列表可解析（13~50 条）、
+所有 30 个启用源均已用项目 Fetcher 实测：列表可解析（13~50 条）、
 带发布日期、抽查详情页正文 131~7787 字，无「空正文」源。
 """
 from __future__ import annotations
@@ -322,8 +323,10 @@ PROVINCE_SOURCES = [
         "selector_config": {"item": "a"},
     },
 
-    # ===== 以下 3 个省级单位建档但暂不启用（2026-11-13 实测结论）=====
-    # 列表页由 POST /queryList 动态接口渲染（commonApi.js），静态 HTML 无文章链接；现有 fetch_list 只支持 GET，待接入。
+    # ===== 江西 / 湖北 / 甘肃：原 3 个待接入源，2026-11-17 攻克并启用 =====
+    # 江西：列表由 POST /queryList（jpaas 数融接口）渲染，静态 HTML 无文章链接。
+    #   curl 可完成接口 SSL 握手（httpx 报 unsafe legacy renegotiation），用 json_post 抓取；
+    #   每条结果 source.urls.pc 是相对路径，按 list_base 拼详情页；正文在 .article-content。
     {
         "name": "江西省人民政府 - 江西要闻",
         "region_province": "江西省",
@@ -331,11 +334,22 @@ PROVINCE_SOURCES = [
         "level": "province",
         "base_url": "https://www.jiangxi.gov.cn",
         "list_url": "https://www.jiangxi.gov.cn/jxsrmzf/jxyw/pc/list.html",
-        "fetch_type": "html",
-        "selector_config": {"item": "a"},
-        "enabled": False,
+        "fetch_type": "json_post",
+        "selector_config": {
+            "item": "a",
+            "content": ".article-content",
+            "list_base": "https://www.jiangxi.gov.cn",
+            "list_api": "https://www.jiangxi.gov.cn/queryList",
+            "post_data": {
+                "current": "1", "pageSize": "30",
+                "websiteCode[]": "jxsrmzf", "channelCode[]": "jxyw",
+                "sort": "sortNum", "order": "desc", "notReturnContent": "true",
+            },
+        },
     },
-    # 创宇盾 412（$_ss 变体）：浏览器可渲染，但 waf.solve_wzws 未取得可重放的通行 cookie，详情页仍回挑战页；待 WAF 适配。
+    # 湖北：创宇盾 412（$_ss 变体）。原判断只认 $_ts 才识别挑战，且 navigate() 在
+    #   <body> 就绪前就返回骨架页 → 列表 0 条。已修 waf.is_wzws_challenge / navigate。
+    #   Cookie 重放后详情页 200；正文在 .hbgov-article-content / .TRS_UEDITOR。
     {
         "name": "湖北省人民政府 - 要闻",
         "region_province": "湖北省",
@@ -344,10 +358,10 @@ PROVINCE_SOURCES = [
         "base_url": "https://www.hubei.gov.cn",
         "list_url": "https://www.hubei.gov.cn/",
         "fetch_type": "html",
-        "selector_config": {"item": "a[href*='t20']"},
-        "enabled": False,
+        "selector_config": {"item": "a[href*='t20']", "content": ".hbgov-article-content"},
     },
-    # 创宇盾 412（$_ts）：headless Chrome 预热仅返回空白页（39B），无法稳定取列表；待对方策略放行。
+    # 甘肃：创宇盾 412（$_ts）。同湖北，navigate() 提前返回骨架页导致空白；已修。
+    #   正文在 #detailContent / .detailContent。
     {
         "name": "甘肃省人民政府 - 要闻",
         "region_province": "甘肃省",
@@ -356,7 +370,6 @@ PROVINCE_SOURCES = [
         "base_url": "https://www.gansu.gov.cn",
         "list_url": "https://www.gansu.gov.cn/",
         "fetch_type": "html",
-        "selector_config": {"item": "a"},
-        "enabled": False,
+        "selector_config": {"item": "a[href*='gsyw']", "content": ".detailContent"},
     },
 ]

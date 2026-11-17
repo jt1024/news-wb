@@ -358,6 +358,37 @@ class Fetcher:
             text = body
         return text
 
+    async def _curl_post(self, url: str, data: dict) -> str:
+        """用 curl 提交表单 POST（JSON 列表接口）。
+
+        江西 jpaas 数融接口在 Python httpx 下报 SSL unsafe legacy renegotiation，
+        curl 走系统 OpenSSL 可正常握手，故与 _curl_get 一样用子进程兜底。
+        data 的键可写成 ``websiteCode[]`` 这类数组参数，curl --data-urlencode
+        会原样编码，服务端按 jQuery $.ajax 约定解析。
+        """
+        marker = "\n__CURL_HTTP_CODE__:"
+        cmd = [
+            "curl", "-sS", "-L", "--compressed", "-m", str(config.FETCH_TIMEOUT),
+            "-A", config.USER_AGENT, "-H", "Accept-Language: zh-CN,zh;q=0.9",
+            "-H", "X-Requested-With: XMLHttpRequest",
+        ]
+        for key, value in (data or {}).items():
+            cmd += ["--data-urlencode", f"{key}={value}"]
+        cmd += ["-w", marker + "%{http_code}", url]
+        proc = await asyncio.create_subprocess_exec(
+            *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await proc.communicate()
+        if proc.returncode != 0:
+            raise RuntimeError(f"curl POST failed: {stderr.decode(errors='ignore')[:200]}")
+        text = stdout.decode("utf-8", errors="ignore")
+        if marker in text:
+            body, _, code = text.rpartition(marker)
+            if not code.strip()[:3].startswith("2"):
+                raise RuntimeError(f"HTTP {code.strip()[:3]} for {url}")
+            text = body
+        return text
+
     # ---- 列表页 ----
     async def fetch_list(self, max_items: int = 50) -> list[ListItem]:
         if self.source.fetch_type == "json":
@@ -365,6 +396,14 @@ class Fetcher:
             api = (self.selectors.get("list_api") or self.source.list_url)
             async with self._client() as client:
                 raw = await self.get(client, api)
+            return self._parse_json_list(raw)[:max_items]
+        if self.source.fetch_type == "json_post":
+            # 列表由 POST 接口渲染（江西 jpaas 数融 /queryList）：
+            # 静态 HTML 里没有文章链接，必须向接口提交表单参数拿 JSON。
+            # 该接口在 Python httpx 下触发 SSL unsafe legacy renegotiation，
+            # 统一走 curl（curl 可正常完成握手），故单独用 _curl_post。
+            api = (self.selectors.get("list_api") or self.source.list_url)
+            raw = await self._curl_post(api, self.selectors.get("post_data") or {})
             return self._parse_json_list(raw)[:max_items]
         if self.source.fetch_type == "html_api":
             # 列表 HTML 片段嵌在 JSON 接口里（济南 jpaas /front/page/build/unit）：
@@ -402,19 +441,34 @@ class Fetcher:
             log.warning("json list parse failed for %s", self.source.name)
             return []
         payload = (data.get("data") if isinstance(data, dict) else None) or {}
+        if not isinstance(payload, dict):
+            payload = {}
         if isinstance(data, list):
             rows = data
         elif isinstance(data, dict):
-            rows = (data.get("articles") or data.get("list")
-                    or payload.get("articles") or payload.get("rows") or [])
+            # 只接受 list 值：江西 data.rows 是条数(int=30)，不是数组，
+            # 直接 or 会取到整数导致 for 迭代报错；真正的数组在 data.results。
+            def _first_list(src, keys):
+                for k in keys:
+                    v = src.get(k)
+                    if isinstance(v, list):
+                        return v
+                return []
+
+            rows = (_first_list(data, ("articles", "list"))
+                    or _first_list(payload, ("articles", "rows", "results")))
         else:
             rows = []
         items = []
         base = self.source.base_url or self.source.list_url
+        list_base = self.selectors.get("list_base") or base
         url_template = self.selectors.get("url_template") or ""
         for a in rows:
             if not isinstance(a, dict):
                 continue
+            # 江西 jpaas 数融：每条是 {"index":..,"source":{title,pubDate,urls,redirectUrl}}
+            if "source" in a and isinstance(a["source"], dict):
+                a = a["source"]
             title = _clean_title(str(a.get("title") or a.get("TITLE")
                                      or a.get("docTitle") or a.get("docSubtitle") or ""))
             if url_template:
@@ -423,6 +477,20 @@ class Fetcher:
             else:
                 url = str(a.get("url") or a.get("URL") or a.get("link")
                           or a.get("linked_url") or "").strip()
+            if not url:
+                # 江西：urls 是 JSON 字符串或 dict，取 pc 栏目地址；缺 pc 时退回 redirectUrl
+                urls = a.get("urls")
+                if isinstance(urls, str):
+                    try:
+                        urls = json.loads(urls)
+                    except (ValueError, TypeError):
+                        urls = {}
+                if isinstance(urls, dict):
+                    url = str(urls.get("pc") or "").strip()
+                if not url:
+                    url = str(a.get("redirectUrl") or "").strip()
+            if url and not url.startswith(("http://", "https://")):
+                url = urljoin(list_base, url)  # 相对路径按栏目页拼接，不能用 API 地址
             url = self._prefer_https(url)
             if not title or not url or len(title) < 8:
                 continue

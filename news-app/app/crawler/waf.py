@@ -161,8 +161,16 @@ def _run_challenge_js(html: str) -> str | None:
 # ---------------- 2. 创宇盾新版 412 ----------------
 
 def is_wzws_challenge(status_code: int, body: str) -> bool:
-    """412 + $_ts 动态挑战（卫健委 / 药监局）。"""
-    return status_code == 412 and "$_ts" in body and "r='m'" in body
+    """412 + 创宇盾动态挑战（卫健委 / 药监局 / 湖北 / 甘肃）。
+
+    创宇盾有多个代际：卫健委/药监局/甘肃用 ``$_ts``，湖北省门户用 ``$_ss``；
+    ``r='m'`` 与 ``r="m"`` 两种引号写法都出现过。命中任一挑战变量即可，
+    避免湖北省因 ``$_ss`` 不在旧判断里被当成普通 412 直接抛错。
+    """
+    if status_code != 412:
+        return False
+    marker = ("$_ts" in body) or ("$_ss" in body)
+    return marker and ("r='m'" in body or 'r="m"' in body)
 
 
 async def solve_wzws(url: str, force: bool = False) -> str | None:
@@ -232,8 +240,14 @@ class _ChromeTab:
                 "returnByValue": True,
             })
             html = ((r.get("result") or {}).get("value") or "")
-            # 挑战页含 $_ts；页面 reload 成真实内容后立即返回，不必等满 6 秒
-            if html and len(html) > 1000 and "$_ts" not in html[:8000]:
+            # 挑战页含 $_ts / $_ss，必须继续等页面 reload。
+            # 关键：只判断「无挑战标记」不够——湖北/甘肃在 reload 过渡态会先给出
+            # 一份 >1000 字节、只有 <head> 没有 <body> 的骨架（实测 1.9KB/5KB），
+            # 旧逻辑据此提前返回，列表解析拿到 0 条链接，误判为「空白页」。
+            # 要求同时出现 <body 标签才算渲染完成，骨架页继续轮询到正文就绪。
+            challenge = ("$_ts" in html[:8000]) or ("$_ss" in html[:8000])
+            has_body = ("<body" in html[:12000].lower())
+            if html and len(html) > 1000 and not challenge and has_body:
                 return html
             if time.time() >= deadline:
                 return html
@@ -337,7 +351,7 @@ async def _chrome_clearance(url: str) -> str | None:
         return None
     try:
         html = await tab.navigate(url)
-        if html and "$_ts" not in html[:8000]:
+        if html and "$_ts" not in html[:8000] and "$_ss" not in html[:8000]:
             _chrome_html[url] = (html, time.time())
         cookies = await tab.cookies(host)
     except Exception as e:
