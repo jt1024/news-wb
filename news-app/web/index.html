@@ -7,12 +7,26 @@
 <link rel="stylesheet" href="/ui.css">
 <style>
   /* ---- 本页专属：筛选栏 / 新闻列表（遵循 ui.css 令牌） ---- */
+  /* 地区快捷标签：维度名 + 平铺标签 + 选中高亮（参考成熟内容站的地区筛选） */
+  .quick-bar { background: var(--bg-card); border-bottom: 1px solid var(--border-2); padding: 10px var(--sp-6) 9px; }
+  .quick-inner { max-width: var(--content-max); margin: 0 auto; display: flex; align-items: flex-start; gap: var(--sp-3); }
+  .quick-label { flex: none; min-width: 30px; font-size: 12px; color: var(--text-3); line-height: 26px; }
+  .quick-tags { display: flex; flex-wrap: wrap; gap: 5px; }
+  .quick-tag {
+    border: 1px solid transparent; background: transparent; color: var(--text-2);
+    font: inherit; font-size: 12.5px; line-height: 18px; padding: 3px 10px;
+    border-radius: var(--r-sm); cursor: pointer; white-space: nowrap;
+  }
+  .quick-tag:hover { background: var(--bg-hover); color: var(--text-1); }
+  .quick-tag.active { background: var(--brand-600); color: #fff; }
+  @media (max-width: 768px) { .quick-bar { padding: 8px var(--sp-4); } .quick-label { line-height: 24px; } }
+
   .filter-bar { background: var(--bg-card); border-bottom: 1px solid var(--border-2); padding: var(--sp-3) var(--sp-6); }
-  .filter-inner { max-width: 960px; margin: 0 auto; display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  .filter-inner { max-width: var(--content-max); margin: 0 auto; display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
   .filter-inner input[type="text"] { width: 220px; }
   .filter-sep { font-size: 12px; color: var(--text-3); }
 
-  .page { max-width: 960px; margin: var(--sp-5) auto 0; padding: 0 var(--sp-6) 64px; }
+  .page { max-width: var(--content-max); margin: var(--sp-5) auto 0; padding: 0 var(--sp-6) 64px; }
   .list-toolbar {
     display: flex; justify-content: space-between; align-items: baseline;
     margin-bottom: var(--sp-3); font-size: 12.5px; color: var(--text-3);
@@ -49,6 +63,13 @@
     <a href="#" onclick="logout();return false;">退出</a>
   </nav>
 </header>
+
+<div class="quick-bar">
+  <div class="quick-inner">
+    <span class="quick-label">地区</span>
+    <div class="quick-tags" id="quick-regions"></div>
+  </div>
+</div>
 
 <div class="filter-bar">
   <div class="filter-inner">
@@ -133,6 +154,50 @@ async function loadMeta() {
   r.types.forEach(t => type.add(new Option(t.label, t.key)));
   const tag = document.getElementById("f-tag");
   r.tags.forEach(t => tag.add(new Option(t, t)));
+  buildRegionTags(r);
+}
+
+/* 地区快捷标签：与省份 / 港澳台下拉双向同步，点选即筛。
+   标签只做顶层地区（全部 / 省 / 港澳台），地市与区县仍由下拉精确筛选。 */
+let REGION_TAGS = [];
+function shortRegion(name) {
+  return String(name).replace(/(维吾尔|壮族|回族)?自治区$/, "")
+                     .replace(/特别行政区$/, "").replace(/[省市]$/, "");
+}
+function buildRegionTags(meta) {
+  REGION_TAGS = [{kind: "all", label: "全部", value: "", title: "全部地区"}];
+  (meta.provinces || []).forEach(p => REGION_TAGS.push({kind: "province", label: shortRegion(p), value: p, title: p}));
+  (meta.areas || []).forEach(a => REGION_TAGS.push({kind: "area", label: a, value: a, title: a}));
+  document.getElementById("quick-regions").innerHTML = REGION_TAGS.map((t, i) =>
+    `<button type="button" class="quick-tag" data-i="${i}" title="${esc(t.title)}" onclick="selectRegion(${i})">${esc(t.label)}</button>`
+  ).join("");
+  highlightRegionTags();
+}
+function highlightRegionTags() {
+  const pv = document.getElementById("f-province").value;
+  const av = document.getElementById("f-area").value;
+  document.querySelectorAll("#quick-regions .quick-tag").forEach(btn => {
+    const t = REGION_TAGS[Number(btn.dataset.i)];
+    const on = t.kind === "all" ? (!pv && !av) : t.kind === "province" ? (pv === t.value) : (av === t.value);
+    btn.classList.toggle("active", on);
+  });
+}
+function selectRegion(i) {
+  const t = REGION_TAGS[i];
+  if (!t) return;
+  ["f-org", "f-city", "f-district", "f-province", "f-area"].forEach(id => document.getElementById(id).value = "");
+  const level = document.getElementById("f-level");
+  if (t.kind === "province") {
+    document.getElementById("f-province").value = t.value;
+    level.value = t.value === "广东省" ? "" : "province";
+  } else if (t.kind === "area") {
+    document.getElementById("f-area").value = t.value;
+    level.value = "area";
+  } else {
+    level.value = "";
+  }
+  syncFilters();
+  load(1);
 }
 
 function filterQuery() {
@@ -265,6 +330,7 @@ function syncFilters() {
   const d = document.getElementById("f-district");
   d.disabled = city.disabled || (city.value && city.value !== "广州市");
   if (d.disabled) d.value = "";
+  highlightRegionTags();
 }
 ["f-level", "f-city"].forEach(id => document.getElementById(id).addEventListener("change", syncFilters));
 document.getElementById("f-province").addEventListener("change", e => {
