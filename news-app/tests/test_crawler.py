@@ -205,13 +205,30 @@ class DistrictSourceConfigTests(unittest.TestCase):
     def test_eleven_gz_districts_covered(self):
         from app.crawler.sources import SEED_SOURCES
 
-        districts = [c for c in SEED_SOURCES if c.get("region_district")]
+        # 只按广州过滤：其他省（如山东第一批 17 源）也用 district 维度，
+        # 不能用全局 district 集合断言，否则每接入一个省都要改测试。
+        districts = [c for c in SEED_SOURCES
+                     if c.get("region_district") and c.get("region_city") == "广州市"]
         self.assertEqual({c["region_district"] for c in districts}, self.EXPECTED)
         self.assertEqual(len(districts), 11)
         for c in districts:
-            self.assertEqual(c["region_city"], "广州市")
             self.assertEqual(c["level"], "district")
             self.assertTrue(c["list_url"].startswith(("http://", "https://")))
+
+    def test_shandong_district_first_batch(self):
+        """山东第一批 17 区县源：归属完整、层级正确、名称无重复。"""
+        from app.crawler.sources import SEED_SOURCES
+
+        sd = [c for c in SEED_SOURCES
+              if c.get("level") == "district" and c.get("region_province") == "山东省"]
+        self.assertEqual(len(sd), 17)
+        for c in sd:
+            self.assertTrue(c["region_city"])
+            self.assertTrue(c["region_district"])
+            self.assertEqual(c["region_area"], "")
+            self.assertEqual(c["region_org"], "")
+        names = [c["name"] for c in SEED_SOURCES]
+        self.assertEqual(len(names), len(set(names)), "源名称重复会导致 seed 静默漏源")
 
     def test_seed_names_are_unique(self):
         from app.crawler.sources import SEED_SOURCES

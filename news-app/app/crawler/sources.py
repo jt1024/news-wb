@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from .province_sources import PROVINCE_LABELS, PROVINCE_SOURCES  # noqa: F401
 from .province_city_sources import PROVINCE_CITY_SOURCES  # noqa: F401
+from .shandong_district_sources import SHANDONG_DISTRICT_SOURCES  # noqa: F401
 
 # 港澳台地区分组（固定展示顺序）。「港澳综合」收中央港澳工作部门的跨地区稿件。
 AREA_LABELS = ("中国香港", "中国澳门", "中国台湾", "港澳综合")
@@ -731,3 +732,8 @@ SEED_SOURCES.extend(PROVINCE_SOURCES)
 # level="city" + region_city=地级市，统计口径已按 region_province 排除，
 # 不混入广东省地市榜；seed_sources() 按 name 幂等入库。
 SEED_SOURCES.extend(PROVINCE_CITY_SOURCES)
+
+# ===== 山东区级门户 · 第一批（2026-11-18 接入，17 区县）=====
+# level="district" + region_city=地级市 + region_district=区县；
+# 与广州 11 区同维度，前台「山东 → 淄博 → 淄川区」三级可精确筛选。
+SEED_SOURCES.extend(SHANDONG_DISTRICT_SOURCES)

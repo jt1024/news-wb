@@ -246,7 +246,16 @@ class Fetcher:
                        "www.rizhao.gov.cn", "www.zaozhuang.gov.cn",
                        "www.dongying.gov.cn", "www.liaocheng.gov.cn",
                        "www.binzhou.gov.cn", "www.heze.gov.cn",
-                       "www.anshan.gov.cn", "www.liaoyang.gov.cn"}
+                       "www.anshan.gov.cn", "www.liaoyang.gov.cn",
+                       # 山东区级门户第一批（淄博/威海/临沂部分）：https 证书域名不匹配，
+                       # 实测 http 200 / https CERTIFICATE_VERIFY_FAILED（2026-11-18）
+                       "www.zichuan.gov.cn", "www.zhangdian.gov.cn",
+                       "www.boshan.gov.cn", "www.linzi.gov.cn",
+                       "www.zhoucun.gov.cn", "www.huantai.gov.cn",
+                       "www.gaoqing.gov.cn", "www.yiyuan.gov.cn",
+                       "www.huancui.gov.cn", "www.wendeng.gov.cn",
+                       "www.rongcheng.gov.cn", "www.rushan.gov.cn",
+                       "www.junan.gov.cn", "www.mengyin.gov.cn"}
 
     @staticmethod
     def _prefer_https(url: str) -> str:
