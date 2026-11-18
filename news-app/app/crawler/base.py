@@ -255,7 +255,28 @@ class Fetcher:
                        "www.gaoqing.gov.cn", "www.yiyuan.gov.cn",
                        "www.huancui.gov.cn", "www.wendeng.gov.cn",
                        "www.rongcheng.gov.cn", "www.rushan.gov.cn",
-                       "www.junan.gov.cn", "www.mengyin.gov.cn"}
+                       "www.junan.gov.cn", "www.mengyin.gov.cn",
+                       # 山东区级门户第二批（青岛/济南/烟台/潍坊）：多数站 https 自签或
+                       # TLS 握手失败、升级 https 回 502；裸 http 实测 200。
+                       # 注意已实测 https 可用的 8 站（济阳/临朐/奎文/寒亭/寿光/招远/
+                       # 海阳/龙口）不在此列，保持 https。
+                       "www.qdsn.gov.cn", "www.qingdaoshibei.gov.cn",
+                       "www.qdlc.gov.cn", "www.laoshan.gov.cn",
+                       "www.huangdao.gov.cn", "www.chengyang.gov.cn",
+                       "www.jimo.gov.cn", "www.jiaozhou.gov.cn",
+                       "www.pingdu.gov.cn", "www.laixi.gov.cn",
+                       "www.lixia.gov.cn", "www.shizhong.gov.cn",
+                       "www.huaiyin.gov.cn", "www.tianqiao.gov.cn",
+                       "www.licheng.gov.cn", "www.laiwu.gov.cn",
+                       "www.gangcheng.gov.cn", "www.pingyin.gov.cn",
+                       "www.shanghe.gov.cn",
+                       "www.zhifu.gov.cn", "www.muping.gov.cn",
+                       "www.changdao.gov.cn", "www.laiyang.gov.cn",
+                       "www.laizhou.gov.cn", "www.penglai.gov.cn",
+                       "www.weicheng.gov.cn", "www.fangzi.gov.cn",
+                       "www.changle.gov.cn", "www.qingzhou.gov.cn",
+                       "www.zhucheng.gov.cn", "www.anqiu.gov.cn",
+                       "www.gaomi.gov.cn", "www.changyi.gov.cn"}
 
     @staticmethod
     def _prefer_https(url: str) -> str:

@@ -219,8 +219,12 @@ class DistrictSourceConfigTests(unittest.TestCase):
         """山东第一批 17 区县源：归属完整、层级正确、名称无重复。"""
         from app.crawler.sources import SEED_SOURCES
 
+        # 按第一批三市过滤：后续批次（青岛/济南/烟台/潍坊）也用 district 维度，
+        # 不能用全局山东省 district 集合断言，否则每加一批都要改此测试。
+        first_cities = {"淄博市", "威海市", "临沂市"}
         sd = [c for c in SEED_SOURCES
-              if c.get("level") == "district" and c.get("region_province") == "山东省"]
+              if c.get("level") == "district" and c.get("region_province") == "山东省"
+              and c.get("region_city") in first_cities]
         self.assertEqual(len(sd), 17)
         for c in sd:
             self.assertTrue(c["region_city"])
@@ -229,6 +233,34 @@ class DistrictSourceConfigTests(unittest.TestCase):
             self.assertEqual(c["region_org"], "")
         names = [c["name"] for c in SEED_SOURCES]
         self.assertEqual(len(names), len(set(names)), "源名称重复会导致 seed 静默漏源")
+
+    def test_shandong_district_second_batch(self):
+        """山东第二批 41 区县源：四市分布、归属完整、规范名匹配、无重复。"""
+        import json
+        from app.crawler.sources import SEED_SOURCES
+        from app.crawler.shandong_district_batch2 import SHANDONG_DISTRICT_BATCH2
+
+        self.assertEqual(len(SHANDONG_DISTRICT_BATCH2), 41)
+        sd = [c for c in SEED_SOURCES
+              if c.get("level") == "district" and c.get("region_province") == "山东省"
+              and c.get("region_city") in {"烟台市", "青岛市", "济南市", "潍坊市"}]
+        self.assertEqual(len(sd), 41)
+        from collections import Counter
+        self.assertEqual(
+            dict(Counter(c["region_city"] for c in sd)),
+            {"青岛市": 10, "济南市": 10, "烟台市": 9, "潍坊市": 12},
+        )
+        # 区县规范名必须与前台区划树一致，否则三级筛选命中不到
+        regions = json.load(open("app/data/regions.json", encoding="utf-8"))
+        sd_prov = [p for p in regions["provinces"] if p["name"] == "山东省"][0]
+        name_map = {city["name"]: {d["name"] for d in city["districts"]}
+                    for city in sd_prov["cities"]}
+        for c in sd:
+            self.assertEqual(c["region_province"], "山东省")
+            self.assertEqual(c["region_area"], "")
+            self.assertEqual(c["region_org"], "")
+            self.assertIn(c["region_district"], name_map[c["region_city"]])
+            self.assertTrue(c["list_url"].startswith(("http://", "https://")))
 
     def test_seed_names_are_unique(self):
         from app.crawler.sources import SEED_SOURCES
