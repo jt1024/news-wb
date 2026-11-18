@@ -77,7 +77,7 @@
 <!-- 上部：三级联动下拉（独立筛选 A） -->
 <div class="filter-zone">
   <div class="filter-row">
-    <span class="filter-label">下拉筛选</span>
+    <span class="filter-label">筛选</span>
     <div class="cascade-selects" id="upper-selects">
       <select id="u1" title="第一级" onchange="onUpper1()"><option value="">全部</option></select>
       <select id="u2" title="第二级" onchange="onUpper2()" style="display:none"></select>
@@ -95,16 +95,16 @@
 <!-- 中部：三级联动标签（独立筛选 B，点选即时生效） -->
 <div class="filter-zone">
   <div class="filter-row" style="display:block">
-    <div class="level-tags"><span class="level-name">第一层级</span><div class="tag-list" id="tags1"></div></div>
-    <div class="level-tags"><span class="level-name">第二层级</span><div class="tag-list" id="tags2"></div></div>
-    <div class="level-tags"><span class="level-name">第三层级</span><div class="tag-list" id="tags3"></div></div>
+    <div class="level-tags"><span class="level-name">一级</span><div class="tag-list" id="tags1"></div></div>
+    <div class="level-tags"><span class="level-name">二级</span><div class="tag-list" id="tags2"></div></div>
+    <div class="level-tags"><span class="level-name">三级</span><div class="tag-list" id="tags3"></div></div>
   </div>
 </div>
 
 <!-- 下部：时间快捷 + 日期（独立筛选 C） -->
 <div class="filter-zone">
   <div class="filter-row">
-    <span class="filter-label">时间范围</span>
+    <span class="filter-label">日期</span>
     <button class="btn" onclick="quickTime('today')">今天</button>
     <button class="btn" onclick="quickTime('yesterday')">昨天</button>
     <button class="btn" onclick="quickTime('week')">本周</button>
