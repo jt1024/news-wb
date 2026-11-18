@@ -23,7 +23,9 @@ SKIP_DIRS = {"__pycache__", ".pytest_cache", "runtime"}
 
 
 def _copy_python_tree(src: Path, dst: Path) -> None:
-    for path in src.rglob("*.py"):
+    # 随项目打包的源码与静态资源都要带：.py 之外还有 app/data/regions.json
+    # （全国行政区划字典，/api/meta 的 regions 树依赖它），漏掉会让线上首页筛选报错。
+    for path in list(src.rglob("*.py")) + list(src.rglob("*.json")):
         if SKIP_DIRS & set(path.relative_to(src).parts):
             continue
         rel = path.relative_to(src)
