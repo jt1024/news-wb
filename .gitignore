@@ -23,6 +23,10 @@ data/
 *.db-shm
 *.log
 
+# 例外：随项目打包的全国行政区划字典（静态资源，非运行产物，必须进 Git）
+!news-app/app/data/
+!news-app/app/data/regions.json
+
 # ===== 发布快照：含线上专用 .env 与数据库快照，绝不提交 =====
 publish-app/
 *.genie

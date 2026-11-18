@@ -6,47 +6,57 @@
 <title>政务新闻聚合平台</title>
 <link rel="stylesheet" href="/ui.css">
 <style>
-  /* ---- 本页专属：筛选栏 / 新闻列表（遵循 ui.css 令牌） ---- */
-  /* 地区快捷标签：维度名 + 平铺标签 + 选中高亮（参考成熟内容站的地区筛选） */
-  .quick-bar { background: var(--bg-card); border-bottom: 1px solid var(--border-2); padding: 10px var(--sp-6) 9px; }
-  .quick-inner { max-width: var(--content-max); margin: 0 auto; display: flex; align-items: flex-start; gap: var(--sp-3); }
-  .quick-label { flex: none; min-width: 30px; font-size: 12px; color: var(--text-3); line-height: 26px; }
-  .quick-tags { display: flex; flex-wrap: wrap; gap: 5px; }
-  .quick-tag {
-    border: 1px solid transparent; background: transparent; color: var(--text-2);
-    font: inherit; font-size: 12.5px; line-height: 18px; padding: 3px 10px;
+  /* ---- 本页专属：三段式筛选 / 新闻列表（遵循 ui.css 令牌） ---- */
+  .filter-zone { background: var(--bg-card); border-bottom: 1px solid var(--border-2); padding: 10px var(--sp-6); }
+  .filter-row { max-width: var(--content-max); margin: 0 auto; display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+  .filter-row + .filter-row { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border-2); }
+  .filter-label { flex: none; width: 46px; font-size: 12px; color: var(--text-3); }
+  .filter-row select, .filter-row input[type="text"], .filter-row input[type="date"] { font-size: 12.5px; }
+  .filter-row input[type="text"] { width: 200px; }
+  .filter-sep { font-size: 12px; color: var(--text-3); }
+  .filter-hint { font-size: 11.5px; color: var(--text-3); margin-left: auto; }
+
+  .cascade-selects { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+  .cascade-selects select { min-width: 140px; }
+  .level-tags { display: flex; align-items: flex-start; gap: 8px; }
+  .level-tags + .level-tags { margin-top: 6px; }
+  .level-name { flex: none; width: 46px; font-size: 12px; color: var(--text-3); line-height: 24px; }
+  .tag-list { display: flex; flex-wrap: wrap; gap: 4px; }
+  .tag {
+    border: 1px solid var(--border-1); background: var(--bg-card); color: var(--text-2);
+    font: inherit; font-size: 12px; line-height: 18px; padding: 2px 9px;
     border-radius: var(--r-sm); cursor: pointer; white-space: nowrap;
   }
-  .quick-tag:hover { background: var(--bg-hover); color: var(--text-1); }
-  .quick-tag.active { background: var(--brand-600); color: #fff; }
-  @media (max-width: 768px) { .quick-bar { padding: 8px var(--sp-4); } .quick-label { line-height: 24px; } }
-
-  .filter-bar { background: var(--bg-card); border-bottom: 1px solid var(--border-2); padding: var(--sp-3) var(--sp-6); }
-  .filter-inner { max-width: var(--content-max); margin: 0 auto; display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
-  .filter-inner input[type="text"] { width: 220px; }
-  .filter-sep { font-size: 12px; color: var(--text-3); }
+  .tag:hover { border-color: var(--brand-500); color: var(--brand-600); }
+  .tag.active { background: var(--brand-600); border-color: var(--brand-600); color: #fff; }
+  .tag.all-tag { color: var(--text-3); }
+  .tag.all-tag.active { color: #fff; }
 
   .page { max-width: var(--content-max); margin: var(--sp-5) auto 0; padding: 0 var(--sp-6) 64px; }
-  .list-toolbar {
-    display: flex; justify-content: space-between; align-items: baseline;
-    margin-bottom: var(--sp-3); font-size: 12.5px; color: var(--text-3);
-  }
+  .list-toolbar { display: flex; justify-content: space-between; align-items: baseline;
+    margin-bottom: var(--sp-3); font-size: 12.5px; color: var(--text-3); }
   .list-toolbar b { color: var(--text-1); font-variant-numeric: tabular-nums; }
-
-  .news-item {
-    background: var(--bg-card);
-    border: 1px solid var(--border-2); border-radius: var(--r-lg);
+  .news-item { background: var(--bg-card); border: 1px solid var(--border-2); border-radius: var(--r-lg);
     padding: 18px 22px; margin-bottom: var(--sp-3); cursor: pointer;
-    transition: box-shadow .15s, border-color .15s, transform .15s;
-  }
+    transition: box-shadow .15s, border-color .15s, transform .15s; }
   .news-item:hover { box-shadow: var(--shadow-hover); border-color: #E3E5EA; transform: translateY(-1px); }
   .news-item h3 { margin: 0; font-size: 15.5px; line-height: 1.55; font-weight: 600; }
   .news-item h3:hover { color: var(--brand-600); }
   .meta { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 8px; font-size: 12px; color: var(--text-3); }
   .meta .dot::before { content: "·"; margin-right: 2px; }
   .summary { margin-top: 8px; font-size: 13px; color: var(--text-2); line-height: 1.75; }
-  .more { text-align: center; margin-top: var(--sp-5); }
-  .more .btn { min-width: 160px; }
+
+  .pager { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 6px; margin-top: var(--sp-5); }
+  .pager .btn { min-width: 30px; padding: 4px 9px; font-size: 12.5px; }
+  .pager .btn.cur { background: var(--brand-600); color: #fff; border-color: var(--brand-600); }
+  .pager .btn:disabled { opacity: .45; cursor: not-allowed; }
+  .pager select { font-size: 12.5px; }
+  .pager .pager-info { font-size: 12px; color: var(--text-3); margin-left: 8px; }
+  @media (max-width: 768px) {
+    .filter-zone { padding: 8px var(--sp-4); }
+    .filter-label, .level-name { width: 40px; }
+    .cascade-selects select { min-width: 110px; }
+  }
 </style>
 </head>
 <body>
@@ -64,43 +74,54 @@
   </nav>
 </header>
 
-<div class="quick-bar">
-  <div class="quick-inner">
-    <span class="quick-label">地区</span>
-    <div class="quick-tags" id="quick-regions"></div>
+<!-- 上部：三级联动下拉（独立筛选 A） -->
+<div class="filter-zone">
+  <div class="filter-row">
+    <span class="filter-label">下拉筛选</span>
+    <div class="cascade-selects" id="upper-selects">
+      <select id="u1" title="第一级" onchange="onUpper1()"><option value="">全部</option></select>
+      <select id="u2" title="第二级" onchange="onUpper2()" style="display:none"></select>
+      <select id="u3" title="第三级" onchange="onUpper3()" style="display:none"></select>
+      <select id="u-type" title="类型"><option value="">全部类型</option></select>
+      <select id="u-tag" title="主题"><option value="">全部主题</option></select>
+      <input type="text" id="u-q" placeholder="搜索标题 / 正文 / 摘要">
+      <button class="btn primary" onclick="applyUpper()">查询</button>
+      <button class="btn" onclick="resetUpper()">重置</button>
+    </div>
+    <span class="filter-hint">此区条件独立于下方标签，点「查询」生效</span>
   </div>
 </div>
 
-<div class="filter-bar">
-  <div class="filter-inner">
-    <select id="f-level" title="行政层级">
-      <option value="">全部层级</option>
-      <option value="national">国家部委</option>
-      <option value="province">省级</option>
-      <option value="city">地市级</option>
-      <option value="district">区县级</option>
-      <option value="area">港澳台地区</option>
-    </select>
-    <select id="f-province" title="省级行政区"><option value="">全部省份</option></select>
-    <select id="f-org" title="国家部委 / 机构"><option value="">全部部委</option></select>
-    <select id="f-area" title="港澳台地区"><option value="">全部地区</option></select>
-    <select id="f-city"><option value="">全部地市</option></select>
-    <select id="f-district" title="广州市各区新闻"><option value="">全部区县</option></select>
-    <select id="f-type"><option value="">全部类型</option></select>
-    <select id="f-tag"><option value="">全部主题</option></select>
-    <input type="date" id="f-start">
+<!-- 中部：三级联动标签（独立筛选 B，点选即时生效） -->
+<div class="filter-zone">
+  <div class="filter-row" style="display:block">
+    <div class="level-tags"><span class="level-name">第一层级</span><div class="tag-list" id="tags1"></div></div>
+    <div class="level-tags"><span class="level-name">第二层级</span><div class="tag-list" id="tags2"></div></div>
+    <div class="level-tags"><span class="level-name">第三层级</span><div class="tag-list" id="tags3"></div></div>
+  </div>
+</div>
+
+<!-- 下部：时间快捷 + 日期（独立筛选 C） -->
+<div class="filter-zone">
+  <div class="filter-row">
+    <span class="filter-label">时间范围</span>
+    <button class="btn" onclick="quickTime('today')">今天</button>
+    <button class="btn" onclick="quickTime('yesterday')">昨天</button>
+    <button class="btn" onclick="quickTime('week')">本周</button>
+    <button class="btn" onclick="quickTime('month')">本月</button>
+    <input type="date" id="t-start">
     <span class="filter-sep">至</span>
-    <input type="date" id="f-end">
-    <input type="text" id="f-q" placeholder="搜索标题 / 正文 / 摘要">
-    <button class="btn primary" onclick="load(1)">查询</button>
-    <button class="btn" onclick="resetFilters()">重置</button>
+    <input type="date" id="t-end">
+    <button class="btn primary" onclick="applyTime()">查询</button>
+    <button class="btn" onclick="resetTime()">重置</button>
+    <span class="filter-hint">时间快捷会立即筛选；修改日期后请点「查询」</span>
   </div>
 </div>
 
 <main class="page">
   <div class="list-toolbar"><span id="result-count"></span></div>
   <div id="list"><div class="state">加载中…</div></div>
-  <div class="more"><button class="btn" id="more-btn" style="display:none" onclick="loadNext()">加载更多</button></div>
+  <div class="pager" id="pager"></div>
 </main>
 
 <div class="mask" id="mask" onclick="if(event.target===this)closeDialog()">
@@ -111,21 +132,238 @@
 const TOKEN = localStorage.getItem("nb_token");
 if (!TOKEN) location.href = "/login.html";
 const H = {"Authorization": "Bearer " + TOKEN, "X-NB-Token": TOKEN};
-let page = 1, loading = false;
 
+const TYPE_LABEL = {news: "新闻动态", notice: "通知公告", policy: "政策文件", interpretation: "政策解读", procurement: "招采公示"};
+let REGIONS = [], ORGS = [], META = {};
+let page = 1, pageSize = 10, total = 0;
+/* 三套独立筛选的「已提交」状态；load() 只读取已提交状态，互不干扰 */
+let C = {
+  u: {l1: "", l2: "", l3: "", type: "", tag: "", q: ""},
+  b: {l1: "", l2: "", l3: ""},
+  t: {start: "", end: ""},
+};
+
+function esc(s) { return (s || "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
 function logout() {
   fetch("/api/logout", {method: "POST"}).finally(() => {
     localStorage.removeItem("nb_token"); location.href = "/login.html";
   });
 }
-function esc(s) { return (s || "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
-const TYPE_LABEL = {news: "新闻动态", notice: "通知公告", policy: "政策文件", interpretation: "政策解读", procurement: "招采公示"};
+function findProv(name) { return REGIONS.find(p => p.name === name) || null; }
+function isNational(name) { return name === "national"; }
+
+/* 把一套地区选择映射为后端筛选参数；prefix="" 上部，prefix="b_" 中部 */
+function regionParams(sel, prefix) {
+  const p = {};
+  if (!sel.l1) return p;
+  if (isNational(sel.l1)) {
+    p[prefix + "level"] = "national";
+    if (sel.l2) p[prefix + "org"] = sel.l2;
+    return p;
+  }
+  const prov = findProv(sel.l1);
+  if (!prov) return p;
+  if (prov.kind === "area") { p[prefix + "area"] = prov.name; return p; }
+  p[prefix + "province"] = prov.name;
+  if (sel.l2) p[prefix + "city"] = sel.l2;
+  if (sel.l3) p[prefix + "district"] = sel.l3;
+  return p;
+}
+function buildParams() {
+  const p = new URLSearchParams();
+  for (const [k, v] of Object.entries(regionParams(C.u, ""))) p.set(k, v);
+  for (const [k, v] of Object.entries(regionParams(C.b, "b_"))) p.set(k, v);
+  if (C.u.type) p.set("type", C.u.type);
+  if (C.u.tag) p.set("tag", C.u.tag);
+  if (C.u.q) p.set("q", C.u.q);
+  if (C.t.start) p.set("start", C.t.start);
+  if (C.t.end) p.set("end", C.t.end);
+  p.set("page", page); p.set("size", pageSize);
+  return p;
+}
+
+/* ---------- 上部：三级联动下拉 ---------- */
+function opt(value, label, selected) {
+  return `<option value="${esc(value)}"${selected ? " selected" : ""}>${esc(label)}</option>`;
+}
+function fillSelect(id, items, current) {
+  const el = document.getElementById(id);
+  el.innerHTML = items.map(x => opt(x[0], x[1], x[0] === current)).join("");
+}
+/* 上部联动基于 DOM 当前的「未提交」选择，与已提交的 C.u 无关 */
+function upper2Options(l1) {
+  if (!l1) return [["", "全部"]];
+  if (isNational(l1)) return [["", "全部部委"]].concat(ORGS.map(o => [o, o]));
+  const prov = findProv(l1);
+  if (!prov || prov.flat) return [["", "全部"]];
+  return [["", "全部地市"]].concat(prov.cities.map(c => [c.name, c.name]));
+}
+function upper3Options(l1, l2) {
+  const prov = findProv(l1);
+  if (!prov || prov.flat || !l2 || isNational(l1)) return [["", "全部"]];
+  const city = prov.cities.find(c => c.name === l2);
+  if (!city || !city.districts.length) return [["", "全部"]];
+  return [["", "全部区县"]].concat(city.districts.map(d => [d.name, d.name]));
+}
+function renderUpper() {
+  const l1 = document.getElementById("u1").value;
+  const old2 = document.getElementById("u2").value;
+  const old3 = document.getElementById("u3").value;
+  fillSelect("u2", upper2Options(l1), old2);
+  const l2 = document.getElementById("u2").value;
+  fillSelect("u3", upper3Options(l1, l2), old3);
+  const prov = findProv(l1);
+  const show2 = !!l1;                                   // 选了国家部委或省才显示第二级
+  const show3 = !!l1 && !isNational(l1) && !!prov && !prov.flat && !!l2;
+  document.getElementById("u2").style.display = show2 ? "" : "none";
+  document.getElementById("u3").style.display = show3 ? "" : "none";
+}
+function onUpper1() {
+  document.getElementById("u2").value = "";
+  document.getElementById("u3").value = "";
+  renderUpper();
+}
+function onUpper2() { document.getElementById("u3").value = ""; renderUpper(); }
+function onUpper3() { renderUpper(); }
+function applyUpper() {
+  C.u = {
+    l1: document.getElementById("u1").value,
+    l2: document.getElementById("u2").value,
+    l3: document.getElementById("u3").value,
+    type: document.getElementById("u-type").value,
+    tag: document.getElementById("u-tag").value,
+    q: document.getElementById("u-q").value.trim(),
+  };
+  page = 1; load();
+}
+function resetUpper() {
+  ["u1","u2","u3","u-type","u-tag","u-q"].forEach(id => document.getElementById(id).value = "");
+  C.u = {l1: "", l2: "", l3: "", type: "", tag: "", q: ""};
+  renderUpper(); page = 1; load();
+}
+
+/* ---------- 中部：三级联动标签（点选即时生效） ---------- */
+function tagHtml(value, label, active, isAll) {
+  return `<button type="button" class="tag${active ? " active" : ""}${isAll ? " all-tag" : ""}" data-value="${esc(value)}">${esc(label)}</button>`;
+}
+function renderTags() {
+  const l1 = [["", "全部"]].concat([["national", "国家部委"]]).concat(REGIONS.map(p => [p.name, p.name]));
+  const box1 = document.getElementById("tags1");
+  box1.innerHTML = l1.map(x => tagHtml(x[0], x[1], C.b.l1 === x[0], x[0] === "")).join("");
+  box1.querySelectorAll(".tag").forEach(b => b.onclick = () => {
+    C.b = {l1: b.dataset.value, l2: "", l3: ""}; page = 1; renderTags(); load();
+  });
+
+  let l2 = [["", "全部"]];
+  if (isNational(C.b.l1)) l2 = l2.concat(ORGS.map(o => [o, o]));
+  else {
+    const prov = findProv(C.b.l1);
+    if (prov && !prov.flat) l2 = l2.concat(prov.cities.map(c => [c.name, c.name]));
+  }
+  const box2 = document.getElementById("tags2");
+  box2.innerHTML = l2.map(x => tagHtml(x[0], x[1], C.b.l2 === x[0], x[0] === "")).join("");
+  box2.querySelectorAll(".tag").forEach(b => b.onclick = () => {
+    C.b.l2 = b.dataset.value; C.b.l3 = ""; page = 1; renderTags(); load();
+  });
+
+  let l3 = [["", "全部"]];
+  const prov = findProv(C.b.l1);
+  if (prov && !prov.flat && C.b.l2) {
+    const city = prov.cities.find(c => c.name === C.b.l2);
+    if (city && city.districts.length) l3 = l3.concat(city.districts.map(d => [d.name, d.name]));
+  }
+  const box3 = document.getElementById("tags3");
+  box3.innerHTML = l3.map(x => tagHtml(x[0], x[1], C.b.l3 === x[0], x[0] === "")).join("");
+  box3.querySelectorAll(".tag").forEach(b => b.onclick = () => {
+    C.b.l3 = b.dataset.value; page = 1; renderTags(); load();
+  });
+}
+
+/* ---------- 下部：时间快捷（独立筛选 C） ---------- */
+function ymd(d) {
+  return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0");
+}
+function quickTime(kind) {
+  const now = new Date();
+  let s = new Date(now), e = new Date(now);
+  if (kind === "yesterday") { s.setDate(s.getDate()-1); e = new Date(s); }
+  else if (kind === "week") { const w = (s.getDay()+6)%7; s.setDate(s.getDate()-w); }
+  else if (kind === "month") { s.setDate(1); }
+  const sv = ymd(s), ev = ymd(e);
+  document.getElementById("t-start").value = sv;
+  document.getElementById("t-end").value = ev;
+  C.t = {start: sv, end: ev};
+  page = 1; load();
+}
+function applyTime() {
+  C.t = {start: document.getElementById("t-start").value, end: document.getElementById("t-end").value};
+  page = 1; load();
+}
+function resetTime() {
+  document.getElementById("t-start").value = "";
+  document.getElementById("t-end").value = "";
+  C.t = {start: "", end: ""};
+  page = 1; load();
+}
+
+/* ---------- 列表 / 分页 ---------- */
+async function load() {
+  const params = buildParams();
+  document.getElementById("list").innerHTML = '<div class="state">加载中…</div>';
+  const r = await fetch("/api/news?" + params, {headers: H});
+  if (r.status === 401) return location.href = "/login.html";
+  const data = await r.json();
+  render(data);
+}
+function render(data) {
+  total = data.total;
+  const pages = Math.max(1, Math.ceil(total / pageSize));
+  if (page > pages) { page = pages; return load(); }
+  document.getElementById("result-count").innerHTML =
+    `共 <b>${total}</b> 条结果 · 第 ${page}/${pages} 页`;
+  const el = document.getElementById("list");
+  if (!data.items.length) {
+    el.innerHTML = '<div class="state"><span class="state-icon">◎</span>暂无符合条件的新闻</div>';
+  } else {
+    el.innerHTML = data.items.map(n => `
+      <div class="news-item" onclick="openDetail(${n.id})">
+        <h3>${esc(n.title)}</h3>
+        <div class="meta">
+          ${regionChips(n)}
+          <span class="chip type">${TYPE_LABEL[n.content_type] || n.content_type}</span>
+          ${(n.tags || []).map(t => `<span class="chip tag">${esc(t)}</span>`).join("")}
+          <span class="dot">${esc(n.source)}</span>
+          <span class="dot">${(n.publish_time || "").slice(0, 10)}</span>
+        </div>
+        ${n.summary ? `<div class="summary">${esc(n.summary)}</div>` : ""}
+      </div>`).join("");
+  }
+  renderPager(pages);
+}
+function renderPager(pages) {
+  const pager = document.getElementById("pager");
+  const sizeOpts = [10, 20, 50, 100].map(n =>
+    `<option value="${n}"${n === pageSize ? " selected" : ""}>${n} 条</option>`).join("");
+  let nums = "";
+  const start = Math.max(1, Math.min(page - 2, pages - 4));
+  for (let i = start; i <= Math.min(pages, start + 4); i++)
+    nums += `<button class="btn${i === page ? " cur" : ""}" onclick="goPage(${i})">${i}</button>`;
+  pager.innerHTML = `
+    <span>每页</span>
+    <select onchange="changeSize(this.value)">${sizeOpts}</select>
+    <button class="btn" onclick="goPage(1)"${page === 1 ? " disabled" : ""}>首页</button>
+    <button class="btn" onclick="goPage(${page-1})"${page === 1 ? " disabled" : ""}>上一页</button>
+    ${nums}
+    <button class="btn" onclick="goPage(${page+1})"${page === pages ? " disabled" : ""}>下一页</button>
+    <button class="btn" onclick="goPage(${pages})"${page === pages ? " disabled" : ""}>末页</button>
+    <span class="pager-info">共 ${pages} 页</span>`;
+}
+function goPage(p) { page = p; load(); }
+function changeSize(n) { pageSize = Number(n); page = 1; load(); }
 function regionChips(n) {
   if (n.level === "national")
     return `<span class="chip city">国家部委</span>${n.org ? `<span class="chip city">${esc(n.org)}</span>` : ""}`;
-  if (n.level === "area")
-    return `<span class="chip city">${esc(n.area || "港澳台地区")}</span>`;
-  /* 外省省级新闻 city 为空：必须显示省名，旧逻辑会一律回落成「广东省」 */
+  if (n.level === "area") return `<span class="chip city">${esc(n.area || "港澳台地区")}</span>`;
   if (n.level === "province" && n.province && n.province !== "广东省")
     return `<span class="chip city">${esc(n.province)}</span>`;
   return `<span class="chip city">${esc(n.city || n.province || "广东省")}</span>${n.district ? `<span class="chip city">${esc(n.district)}</span>` : ""}`;
@@ -133,121 +371,11 @@ function regionChips(n) {
 function regionText(n) {
   if (n.level === "national") return "国家部委" + (n.org ? " · " + esc(n.org) : "");
   if (n.level === "area") return esc(n.area || "港澳台地区");
-  if (n.level === "province" && n.province && n.province !== "广东省")
-    return esc(n.province);
+  if (n.level === "province" && n.province && n.province !== "广东省") return esc(n.province);
   return esc(n.city || n.province || "广东省") + (n.district ? " · " + esc(n.district) : "");
 }
 
-async function loadMeta() {
-  const r = await (await fetch("/api/meta", {headers: H})).json();
-  const province = document.getElementById("f-province");
-  (r.provinces || []).forEach(p => province.add(new Option(p, p)));
-  const city = document.getElementById("f-city");
-  r.cities.forEach(c => city.add(new Option(c, c)));
-  const district = document.getElementById("f-district");
-  (r.districts || []).forEach(d => district.add(new Option(d, d)));
-  const org = document.getElementById("f-org");
-  (r.orgs || []).forEach(o => org.add(new Option(o, o)));
-  const area = document.getElementById("f-area");
-  (r.areas || []).forEach(a => area.add(new Option(a, a)));
-  const type = document.getElementById("f-type");
-  r.types.forEach(t => type.add(new Option(t.label, t.key)));
-  const tag = document.getElementById("f-tag");
-  r.tags.forEach(t => tag.add(new Option(t, t)));
-  buildRegionTags(r);
-}
-
-/* 地区快捷标签：与省份 / 港澳台下拉双向同步，点选即筛。
-   标签只做顶层地区（全部 / 省 / 港澳台），地市与区县仍由下拉精确筛选。 */
-let REGION_TAGS = [];
-function shortRegion(name) {
-  return String(name).replace(/(维吾尔|壮族|回族)?自治区$/, "")
-                     .replace(/特别行政区$/, "").replace(/[省市]$/, "");
-}
-function buildRegionTags(meta) {
-  REGION_TAGS = [{kind: "all", label: "全部", value: "", title: "全部地区"}];
-  (meta.provinces || []).forEach(p => REGION_TAGS.push({kind: "province", label: shortRegion(p), value: p, title: p}));
-  (meta.areas || []).forEach(a => REGION_TAGS.push({kind: "area", label: a, value: a, title: a}));
-  document.getElementById("quick-regions").innerHTML = REGION_TAGS.map((t, i) =>
-    `<button type="button" class="quick-tag" data-i="${i}" title="${esc(t.title)}" onclick="selectRegion(${i})">${esc(t.label)}</button>`
-  ).join("");
-  highlightRegionTags();
-}
-function highlightRegionTags() {
-  const pv = document.getElementById("f-province").value;
-  const av = document.getElementById("f-area").value;
-  document.querySelectorAll("#quick-regions .quick-tag").forEach(btn => {
-    const t = REGION_TAGS[Number(btn.dataset.i)];
-    const on = t.kind === "all" ? (!pv && !av) : t.kind === "province" ? (pv === t.value) : (av === t.value);
-    btn.classList.toggle("active", on);
-  });
-}
-function selectRegion(i) {
-  const t = REGION_TAGS[i];
-  if (!t) return;
-  ["f-org", "f-city", "f-district", "f-province", "f-area"].forEach(id => document.getElementById(id).value = "");
-  const level = document.getElementById("f-level");
-  if (t.kind === "province") {
-    document.getElementById("f-province").value = t.value;
-    level.value = t.value === "广东省" ? "" : "province";
-  } else if (t.kind === "area") {
-    document.getElementById("f-area").value = t.value;
-    level.value = "area";
-  } else {
-    level.value = "";
-  }
-  syncFilters();
-  load(1);
-}
-
-function filterQuery() {
-  const p = new URLSearchParams();
-  const map = {level: "f-level", province: "f-province", org: "f-org", area: "f-area", city: "f-city", district: "f-district", type: "f-type", tag: "f-tag", start: "f-start", end: "f-end", q: "f-q"};
-  for (const [k, id] of Object.entries(map)) {
-    const v = document.getElementById(id).value;
-    if (v) p.set(k === "type" ? "type" : k, v);
-  }
-  return p;
-}
-
-async function load(p) {
-  page = p;
-  document.getElementById("list").innerHTML = '<div class="state">加载中…</div>';
-  const params = filterQuery(); params.set("page", p); params.set("size", 20);
-  const r = await fetch("/api/news?" + params, {headers: H});
-  if (r.status === 401) return location.href = "/login.html";
-  const data = await r.json();
-  render(data, p === 1);
-}
-
-async function loadNext() {
-  page += 1;
-  const params = filterQuery(); params.set("page", page); params.set("size", 20);
-  const data = await (await fetch("/api/news?" + params, {headers: H})).json();
-  render(data, false);
-}
-
-function render(data, replace) {
-  const el = document.getElementById("list");
-  document.getElementById("result-count").innerHTML =
-    `共 <b>${data.total}</b> 条结果${data.total > page * 20 ? " · 已显示 " + Math.min(page * 20, data.total) : ""}`;
-  if (!data.items.length && replace) { el.innerHTML = '<div class="state"><span class="state-icon">◎</span>暂无符合条件的新闻</div>'; document.getElementById("more-btn").style.display = "none"; return; }
-  const html = data.items.map(n => `
-    <div class="news-item" onclick="openDetail(${n.id})">
-      <h3>${esc(n.title)}</h3>
-      <div class="meta">
-        ${regionChips(n)}
-        <span class="chip type">${TYPE_LABEL[n.content_type] || n.content_type}</span>
-        ${(n.tags || []).map(t => `<span class="chip tag">${esc(t)}</span>`).join("")}
-        <span class="dot">${esc(n.source)}</span>
-        <span class="dot">${(n.publish_time || "").slice(0, 10)}</span>
-      </div>
-      ${n.summary ? `<div class="summary">${esc(n.summary)}</div>` : ""}
-    </div>`).join("");
-  if (replace) el.innerHTML = html; else el.insertAdjacentHTML("beforeend", html);
-  document.getElementById("more-btn").style.display = data.items.length === 20 ? "" : "none";
-}
-
+/* ---------- 详情 ---------- */
 async function openDetail(id) {
   document.getElementById("mask").classList.add("open");
   document.getElementById("detail").innerHTML = '<div class="state">加载中…</div>';
@@ -277,19 +405,15 @@ async function openDetail(id) {
     ${aiBlock}
     <h4 class="sec-title">原文</h4><div class="orig">${esc(n.content_text) || "（正文未抓取到，请点击上方链接查看原文）"}</div>`;
 }
-
-/* 要点格式化：兼容旧数据的 dict 字符串，渲染为「字段：值」结构 */
 function fmtPoint(p) {
   let s = String(p);
   if (s.includes("{") && s.includes(":")) {
     const pairs = [...s.matchAll(/['"]?([^'":{}，,]+?)['"]?\s*[：:]\s*['"]([^'"]*?)['"]/g)];
-    if (pairs.length >= 2) {
+    if (pairs.length >= 2)
       return pairs.map(([, k, v]) => `<span class="kv"><i>${esc(k.trim())}</i>${esc(v.trim())}</span>`).join("");
-    }
   }
   return esc(s);
 }
-
 async function reinterpret() {
   const n = window._curDetail;
   if (!n) return;
@@ -299,55 +423,24 @@ async function reinterpret() {
   const r = await (await fetch(`/api/news/${n.id}/interpret`, {method: "POST", headers: H})).json();
   const box = document.getElementById("re-interpreting"); if (box) box.remove();
   if (!r.ok) { alert("解读失败：" + (r.error || "请稍后重试")); if (btn) { btn.disabled = false; btn.textContent = "生成 AI 解读"; } return; }
-  openDetail(n.id);  // 重新加载展示结果
+  openDetail(n.id);
 }
 function closeDialog() { document.getElementById("mask").classList.remove("open"); }
 document.addEventListener("keydown", e => { if (e.key === "Escape") closeDialog(); });
 
-function resetFilters() {
-  ["f-level","f-province","f-org","f-area","f-city","f-district","f-type","f-tag","f-start","f-end","f-q"].forEach(id => document.getElementById(id).value = "");
-  syncFilters();
-  load(1);
+/* ---------- 初始化 ---------- */
+async function loadMeta() {
+  const r = await (await fetch("/api/meta", {headers: H})).json();
+  META = r;
+  REGIONS = r.regions || [];
+  ORGS = r.orgs || [];
+  fillSelect("u1", [["", "全部"]].concat([["national", "国家部委"]]).concat(REGIONS.map(p => [p.name, p.name])), "");
+  fillSelect("u-type", [["", "全部类型"]].concat((r.types || []).map(t => [t.key, t.label])), "");
+  fillSelect("u-tag", [["", "全部主题"]].concat((r.tags || []).map(t => [t, t])), "");
+  renderUpper();
+  renderTags();
 }
-/* 层级联动：国家级源没有地市/区县，省级源没有地市；港澳台地区用独立地区维度，
-   与广东省地市体系互斥。选定部委/地区时自动切到对应层级，避免筛出空结果。
-   外省只有省级源且 city 为空，选中外省时禁用地市/区县并自动切到省级。 */
-function syncFilters() {
-  const lvl = document.getElementById("f-level").value;
-  const province = document.getElementById("f-province");
-  province.disabled = lvl === "national" || lvl === "area";
-  if (province.disabled) province.value = "";
-  const org = document.getElementById("f-org");
-  org.disabled = lvl !== "" && lvl !== "national";
-  if (org.disabled) org.value = "";
-  const area = document.getElementById("f-area");
-  area.disabled = lvl !== "" && lvl !== "area";
-  if (area.disabled) area.value = "";
-  const outside = province.value && province.value !== "广东省";
-  const city = document.getElementById("f-city");
-  city.disabled = lvl === "national" || lvl === "province" || lvl === "area" || !!outside;
-  if (city.disabled) city.value = "";
-  const d = document.getElementById("f-district");
-  d.disabled = city.disabled || (city.value && city.value !== "广州市");
-  if (d.disabled) d.value = "";
-  highlightRegionTags();
-}
-["f-level", "f-city"].forEach(id => document.getElementById(id).addEventListener("change", syncFilters));
-document.getElementById("f-province").addEventListener("change", e => {
-  if (e.target.value && e.target.value !== "广东省" && !document.getElementById("f-level").value)
-    document.getElementById("f-level").value = "province";
-  syncFilters();
-});
-document.getElementById("f-org").addEventListener("change", e => {
-  if (e.target.value) document.getElementById("f-level").value = "national";
-  syncFilters();
-});
-document.getElementById("f-area").addEventListener("change", e => {
-  if (e.target.value) document.getElementById("f-level").value = "area";
-  syncFilters();
-});
-document.getElementById("f-q").addEventListener("keydown", e => { if (e.key === "Enter") load(1); });
-loadMeta().then(() => { syncFilters(); load(1); });
+loadMeta().then(() => load());
 </script>
 </body>
 </html>

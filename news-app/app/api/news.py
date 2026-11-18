@@ -1,5 +1,8 @@
 """新闻浏览 API：列表/详情/字典。"""
+import json
 from datetime import datetime
+from functools import lru_cache
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import or_, select
@@ -11,6 +14,13 @@ from ..db import get_db
 from ..models import News, Source, Tag
 
 router = APIRouter(dependencies=[Depends(require_auth)])
+
+
+@lru_cache(maxsize=1)
+def _regions() -> list[dict]:
+    """全国行政区划三级树（34 省级 + 地级市 + 区县），随项目打包。"""
+    path = Path(__file__).resolve().parents[1] / "data" / "regions.json"
+    return json.loads(path.read_text(encoding="utf-8"))["provinces"]
 
 
 def _brief(n: News) -> dict:
@@ -47,6 +57,13 @@ def list_news(
     q: str = "",
     start: str = "",
     end: str = "",
+    # 第二套独立地区筛选（中部三级标签）：与上部条件 AND 叠加
+    b_province: str = "",
+    b_city: str = "",
+    b_district: str = "",
+    b_level: str = "",
+    b_org: str = "",
+    b_area: str = "",
     page: int = 1,
     size: int = 20,
     db: Session = Depends(get_db),
@@ -64,6 +81,18 @@ def list_news(
         stmt = stmt.where(News.region_org == org)
     if area:
         stmt = stmt.where(News.region_area == area)
+    if b_province:
+        stmt = stmt.where(News.region_province == b_province)
+    if b_city:
+        stmt = stmt.where(News.region_city == b_city)
+    if b_district:
+        stmt = stmt.where(News.region_district == b_district)
+    if b_level:
+        stmt = stmt.where(News.level == b_level)
+    if b_org:
+        stmt = stmt.where(News.region_org == b_org)
+    if b_area:
+        stmt = stmt.where(News.region_area == b_area)
     if type_:
         stmt = stmt.where(News.content_type == type_)
     if tag:
@@ -78,6 +107,7 @@ def list_news(
     stmt = stmt.order_by(News.publish_time.desc().nullslast(), News.id.desc())
 
     total_n = len(db.execute(stmt.with_only_columns(News.id).order_by(None)).scalars().all())
+    size = min(max(size, 1), 100)  # 前端每页 10/20/50/100，后端兜底防超大查询
     rows = db.execute(stmt.offset((page - 1) * size).limit(size)).scalars().unique().all()
     return {"total": total_n, "page": page, "size": size, "items": [_brief(n) for n in rows]}
 
@@ -145,6 +175,7 @@ def meta(db: Session = Depends(get_db)):
                for s in db.execute(select(Source)).scalars()]
     return {"provinces": provinces, "cities": sorted(cities), "districts": sorted(districts),
             "orgs": sorted(orgs), "areas": areas, "tags": tags, "sources": sources,
+            "regions": _regions(),  # 完整行政区划树：34 省级（含港澳台）+ 地级市 + 区县
             "types": [
                 {"key": "news", "label": "新闻动态"},
                 {"key": "notice", "label": "通知公告"},
