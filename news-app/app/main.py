@@ -108,6 +108,17 @@ def _migrate(engine):
         if "ai_error" not in cols:
             conn.execute(text("ALTER TABLE news ADD COLUMN ai_error TEXT DEFAULT ''"))
             conn.commit()
+        cols = [r[1] for r in conn.execute(text("PRAGMA table_info(sources)"))]
+        if "last_max_publish" not in cols:
+            conn.execute(text("ALTER TABLE sources ADD COLUMN last_max_publish DATETIME"))
+            conn.commit()
+        if "consecutive_fail" not in cols:
+            conn.execute(text("ALTER TABLE sources ADD COLUMN consecutive_fail INTEGER DEFAULT 0"))
+            conn.commit()
+        conn.execute(text(
+            "UPDATE sources SET consecutive_fail = 0 WHERE consecutive_fail IS NULL"
+        ))
+        conn.commit()
 
 
 @app.get("/health")

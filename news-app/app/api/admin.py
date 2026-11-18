@@ -10,7 +10,8 @@ from .. import config
 from ..crawler.runner import run_fetch, seed_sources
 from ..db import get_db, SessionLocal
 from ..models import FetchLog, News, Source
-from ..scheduler import trigger_fetch, trigger_interpret, trigger_report, _task_state
+from ..scheduler import (trigger_fetch, trigger_interpret, trigger_report,
+                         trigger_backfill, _task_state)
 
 router = APIRouter(prefix="/api/admin", dependencies=[Depends(require_auth)])
 
@@ -53,6 +54,60 @@ async def admin_trigger_fetch(max_items: int = 50):
     _read_only_guard()
     task_id = trigger_fetch(max_items)
     return {"task_id": task_id, "message": "抓取已启动"}
+
+
+@router.post("/backfill")
+async def admin_backfill(body: dict):
+    """按日期区间 + 地域补抓历史新闻。
+
+    body 示例：{"date_from": "2026-10-05", "date_to": "2026-10-05",
+               "city": "广州市", "max_pages": 40}
+    地域可用 province/city/district/area/org/level；source_id 可限定单个源。
+    只扫命中的源，深翻历史列表页，命中日期的入库；不推进水位。
+    """
+    _read_only_guard()
+    from datetime import datetime as _dt
+
+    def _parse_date(value, label):
+        if not value:
+            return None
+        try:
+            return _dt.strptime(str(value)[:10], "%Y-%m-%d")
+        except ValueError:
+            raise HTTPException(400, f"{label} 日期格式应为 YYYY-MM-DD")
+
+    date_from = _parse_date(body.get("date_from"), "date_from")
+    date_to = _parse_date(body.get("date_to"), "date_to")
+    if date_from is None and date_to is None:
+        raise HTTPException(400, "至少指定 date_from 或 date_to")
+    if date_from and date_to and date_from > date_to:
+        raise HTTPException(400, "date_from 不能晚于 date_to")
+    region = {k: body.get(k, "") for k in
+              ("province", "city", "district", "area", "org", "level")}
+    max_pages = min(max(1, int(body.get("max_pages") or 40)), 80)
+    source_ids = body.get("source_ids")  # 可选：分批时指定源 ID 列表
+    if source_ids:
+        source_ids = [int(x) for x in source_ids if str(x).strip().isdigit()]
+    concurrency = body.get("concurrency")
+    task_id = trigger_backfill(
+        date_from=date_from, date_to=date_to, region=region,
+        source_id=body.get("source_id"), max_pages=max_pages,
+        source_ids=source_ids or None,
+        concurrency=min(max(1, int(concurrency or 3)), 8) if concurrency else None,
+    )
+    return {"task_id": task_id,
+            "message": f"补抓已启动：{date_from or '最早'} ~ {date_to or '最新'}"}
+
+
+@router.get("/watermarks")
+def admin_watermarks(db=Depends(get_db)):
+    """各源水位与熔断状态，便于核对增量抓取覆盖情况。"""
+    rows = db.execute(select(Source).where(Source.enabled == True)).scalars().all()  # noqa: E712
+    return [{"id": s.id, "name": s.name,
+             "province": s.region_province or "", "city": s.region_city or "",
+             "last_max_publish": s.last_max_publish.isoformat() if s.last_max_publish else None,
+             "consecutive_fail": getattr(s, "consecutive_fail", 0) or 0}
+            for s in rows]
 
 
 @router.post("/trigger-interpret")

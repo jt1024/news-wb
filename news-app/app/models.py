@@ -35,6 +35,10 @@ class Source(Base):
     selector_config: Mapped[dict] = mapped_column(JSON, default=dict)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     last_fetch_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # 增量抓取水位：本源已见过的最新发布日期。只在本源整轮成功后推进。
+    last_max_publish: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # 连续失败轮次，达到阈值后熔断跳过，避免对异常站点持续施压。
+    consecutive_fail: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
 
     news: Mapped[list["News"]] = relationship(back_populates="source")

@@ -11,6 +11,7 @@ from .province_sources import PROVINCE_LABELS, PROVINCE_SOURCES  # noqa: F401
 from .province_city_sources import PROVINCE_CITY_SOURCES  # noqa: F401
 from .shandong_district_sources import SHANDONG_DISTRICT_SOURCES  # noqa: F401
 from .shandong_district_batch2 import SHANDONG_DISTRICT_BATCH2  # noqa: F401
+from .guangdong_district_sources import GUANGDONG_DISTRICT_SOURCES  # noqa: F401
 
 # 港澳台地区分组（固定展示顺序）。「港澳综合」收中央港澳工作部门的跨地区稿件。
 AREA_LABELS = ("中国香港", "中国澳门", "中国台湾", "港澳综合")
@@ -742,3 +743,8 @@ SEED_SOURCES.extend(SHANDONG_DISTRICT_SOURCES)
 # ===== 山东区级门户 · 第二批（2026-11-18 接入，41 区县）=====
 # 烟台 9 / 青岛 10 / 济南 10 / 潍坊 12；同上维度，33 站走 http 明文白名单。
 SEED_SOURCES.extend(SHANDONG_DISTRICT_BATCH2)
+
+# ===== 广东区级门户（2026-11-18 接入，111 区县）=====
+# 覆盖广州以外 18 个地级市的全部区县（东莞/中山无区县建制）；
+# 同上维度，45 站走 http 明文白名单，5 源放行官方公众号外链。
+SEED_SOURCES.extend(GUANGDONG_DISTRICT_SOURCES)

@@ -97,6 +97,35 @@ SIMHASH_DISTANCE_THRESHOLD = int(os.getenv("SIMHASH_DISTANCE_THRESHOLD", "3"))
 USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
 FETCH_TIMEOUT = 20
 
+# ---- 增量抓取（水位 + 翻页 + 早停）----
+# WATERMARK_OVERLAP_DAYS：水位往回退几天重扫，吸收补发/时钟误差/列表乱序。
+WATERMARK_OVERLAP_DAYS = int(os.getenv("WATERMARK_OVERLAP_DAYS", "2"))
+# 列表翻页：每轮最多翻几页、每页条数、连续多少条早于阈值就停。
+PAGE_MAX = int(os.getenv("PAGE_MAX", "6"))
+PAGE_SIZE = int(os.getenv("PAGE_SIZE", "50"))
+EARLY_STOP_STREAK = int(os.getenv("EARLY_STOP_STREAK", "12"))
+# 补抓上限：单次补抓最多翻多少页、多少条，防止误操作把站翻穿。
+BACKFILL_PAGE_MAX = int(os.getenv("BACKFILL_PAGE_MAX", "40"))
+BACKFILL_ITEM_MAX = int(os.getenv("BACKFILL_ITEM_MAX", "2000"))
+# 补抓并发度：同时跑几个源（每源独立 Session，域名级限速仍保留）。
+# 数据库是单写者，并发主要加速网络等待；保守默认 3，最高 8。
+BACKFILL_CONCURRENCY = int(os.getenv("BACKFILL_CONCURRENCY", "3"))
+# 水位健康告警：水位（最新发布日期）距今超过 N 天视为停滞；超过 2N 天升级红色。
+# 政务站周末/节假日停更常见，默认 3 天（翻倍 6 天才红），避免误报。
+# 新源启用未满 N 天、水位仍为空属正常建立期，不算异常。
+WATERMARK_STALL_DAYS = int(os.getenv("WATERMARK_STALL_DAYS", "3"))
+WATERMARK_NEVER_GRACE_DAYS = int(os.getenv("WATERMARK_NEVER_GRACE_DAYS", "2"))
+
+# ---- 安全抓取 ----
+# 同一域名两次请求的最小间隔（秒），带随机抖动，降低被限流/封禁风险。
+DOMAIN_MIN_INTERVAL = float(os.getenv("DOMAIN_MIN_INTERVAL", "2.5"))
+DOMAIN_JITTER = float(os.getenv("DOMAIN_JITTER", "1.5"))
+# 连续失败熔断：达到次数后本源跳过 N 分钟。
+CIRCUIT_FAIL_THRESHOLD = int(os.getenv("CIRCUIT_FAIL_THRESHOLD", "3"))
+CIRCUIT_COOLDOWN_MINUTES = int(os.getenv("CIRCUIT_COOLDOWN_MINUTES", "60"))
+# 每轮全局发起的列表页请求上限，兜底防止异常站点拖垮整轮。
+MAX_LIST_REQUESTS_PER_ROUND = int(os.getenv("MAX_LIST_REQUESTS_PER_ROUND", "800"))
+
 # ---- 创宇盾新版 412 挑战（卫健委 / 药监局）----
 # 这类 WAF 的外链混淆 JS 需要完整浏览器 DOM，quickjs 解不了；用本机 Chrome
 # headless + CDP 跑完挑战取回 cookie。找不到 Chrome 时这两个源本轮失败，不影响其它源。

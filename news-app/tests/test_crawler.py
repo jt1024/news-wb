@@ -520,5 +520,59 @@ class NewSourceParsingTests(unittest.TestCase):
         self.assertEqual(out.count("雷平率队赴上海参加第九届进博会"), 1)
 
 
+class GuangdongDistrictFetchTests(unittest.TestCase):
+    """广东区县接入新增的三类能力：公众号外链放行、微信文章日期、gkml 跳转壳重写。"""
+
+    def _source(self, selector_config):
+        return SimpleNamespace(
+            name="测试区县源", base_url="https://www.example.gov.cn",
+            list_url="https://www.example.gov.cn/zwyw/index.html",
+            fetch_type="html", selector_config=selector_config,
+        )
+
+    def test_wechat_external_link_rejected_by_default(self):
+        html = ('<li><a href="https://mp.weixin.qq.com/s/abcDEF123" '
+                'title="区领导调研百千万工程推进情况">x</a></li>')
+        items = Fetcher(self._source({}))._parse_list(html)
+        self.assertEqual(items, [])
+
+    def test_wechat_external_link_allowed_by_config(self):
+        html = ('<li><a href="https://mp.weixin.qq.com/s/abcDEF123" '
+                'title="区领导调研百千万工程推进情况">x</a></li>')
+        src = self._source({"allow_external_hosts": ["mp.weixin.qq.com"]})
+        items = Fetcher(src)._parse_list(html)
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0].url, "https://mp.weixin.qq.com/s/abcDEF123")
+
+    def test_unlisted_external_host_still_rejected(self):
+        html = ('<li><a href="https://mp.weixin.qq.com/s/abcDEF123" '
+                'title="区领导调研百千万工程推进情况">x</a></li>'
+                '<li><a href="https://evil.example.com/s/x" '
+                'title="另一条外站新闻标题内容">y</a></li>')
+        src = self._source({"allow_external_hosts": ["mp.weixin.qq.com"]})
+        items = Fetcher(src)._parse_list(html)
+        self.assertEqual(len(items), 1)
+
+    def test_wechat_publish_time_from_ct_var(self):
+        raw = '<html><head><meta name="description" content="文章摘要"/></head>' \
+              '<body><div id="js_content"><p>正文内容。</p></div>' \
+              '<script>var ct = "1763251200";</script></body></html>'
+        pub = _detail_publish_date(BeautifulSoup(raw, "lxml"), raw)
+        from datetime import datetime as dt
+        self.assertEqual(pub, dt.fromtimestamp(1763251200))
+
+    def test_content_dir_rewrite(self):
+        url = "http://www.nanao.gov.cn/na/gkml/zwgk/zwdt/content/post_2585213.html"
+        out = Fetcher(self._source({}))._rewrite_content_dir(
+            url, "/gkmlpt/content/", "http://www.nanao.gov.cn")
+        self.assertEqual(
+            out, "http://www.nanao.gov.cn/gkmlpt/content/2/2585/post_2585213.html")
+
+    def test_content_dir_rewrite_no_match_returns_none(self):
+        out = Fetcher(self._source({}))._rewrite_content_dir(
+            "https://www.example.gov.cn/ywdt/content/post_1.html", "", "https://www.example.gov.cn")
+        self.assertIsNone(out)
+
+
 if __name__ == "__main__":
     unittest.main()

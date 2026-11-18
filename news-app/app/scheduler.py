@@ -63,6 +63,21 @@ def trigger_fetch(max_items: int = 50) -> str:
     return _start_task("fetch", factory, with_progress=True)
 
 
+def trigger_backfill(date_from=None, date_to=None, region=None,
+                     source_id=None, max_pages=None, source_ids=None,
+                     concurrency=None) -> str:
+    """按日期 + 地域补抓历史新闻（异步）。"""
+    from .crawler.runner import run_backfill
+
+    def factory(cb):
+        return run_backfill(date_from=date_from, date_to=date_to,
+                            region=region, source_id=source_id,
+                            max_pages=max_pages, progress_cb=cb,
+                            source_ids=source_ids, concurrency=concurrency)
+
+    return _start_task("backfill", factory, with_progress=True)
+
+
 def trigger_interpret(batch_size: int = 0) -> str:
     """循环消化全部积压：每批 batch_size（0=用配置默认），直到没有待解读。"""
     from .ai.pipeline import run_interpret

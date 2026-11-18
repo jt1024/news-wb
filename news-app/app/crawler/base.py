@@ -11,7 +11,8 @@ import httpx
 from bs4 import BeautifulSoup
 
 from .. import config
-from . import waf
+from . import politeness, waf
+from .pagination import page_url
 
 log = logging.getLogger("crawler.base")
 
@@ -218,6 +219,14 @@ def _detail_publish_date(soup: BeautifulSoup, raw_html: str) -> datetime | None:
             d = _parse_date(str(m.get("content") or ""))
             if d:
                 return d
+    # 微信公众号文章没有 meta 日期，发布时间写在内联脚本 var ct = "1763xxxxxx"。
+    # 少数区县政府门户把本地新闻全文外链到官方公众号，需要这个兜底。
+    m = re.search(r"""var\s+ct\s*=\s*["'](\d{10})["']""", raw_html)
+    if m:
+        try:
+            return datetime.fromtimestamp(int(m.group(1)))
+        except (ValueError, OSError):
+            pass
     text = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", raw_html))
     m = re.search(
         r"(?:发布时间|发布日期|发表时间|信息来源|来源)\s*[:：]?\s*"
@@ -232,6 +241,14 @@ class Fetcher:
     def __init__(self, source):
         self.source = source
         self.selectors = source.selector_config or {}
+        # 个别区县政府门户把新闻全文外链到官方微信公众号。默认同站过滤仍生效，
+        # 只有显式登记的域名才放行，且逐源配置，不影响其他站点。
+        self.allowed_hosts = {
+            str(h).lower() for h in (self.selectors.get("allow_external_hosts") or [])
+        }
+
+    def _allow_external(self, url: str) -> bool:
+        return (urlparse(url).hostname or "").lower() in self.allowed_hosts
 
     # 极少数站点尚未启用 https（实测 https 握手直接失败），保留明文访问。
     # 海关总署的 https 是自签证书链且回 504，只有 http 明文能返回完整页面。
@@ -276,7 +293,27 @@ class Fetcher:
                        "www.weicheng.gov.cn", "www.fangzi.gov.cn",
                        "www.changle.gov.cn", "www.qingzhou.gov.cn",
                        "www.zhucheng.gov.cn", "www.anqiu.gov.cn",
-                       "www.gaomi.gov.cn", "www.changyi.gov.cn"}
+                       "www.gaomi.gov.cn", "www.changyi.gov.cn",
+                       # 广东区级门户（2026-11-18 实测）：以下站 https 自签/过期/
+                       # 域名不匹配/TLS 协议不兼容，自动升级会失败；候选清单里
+                       # 已用裸 http 实测 200，保持明文访问。
+                       "www.lechang.gov.cn",
+                       "www.gdjinping.gov.cn", "www.gdcy.gov.cn",
+                       "www.chaonan.gov.cn", "www.chenghai.gov.cn", "www.nanao.gov.cn",
+                       "www.jianghai.gov.cn", "www.kaiping.gov.cn", "www.enping.gov.cn",
+                       "www.zjxs.gov.cn", "www.ptq.gov.cn", "www.zjmazhang.gov.cn",
+                       "www.suixi.gov.cn", "www.xuwen.gov.cn",
+                       "www.lianjiang.gov.cn", "www.leizhou.gov.cn",
+                       "www.maonan.gov.cn", "www.dianbai.gov.cn", "www.gaozhou.gov.cn",
+                       "www.huazhou.gov.cn", "www.xinyi.gov.cn", "www.meijiang.gov.cn",
+                       "www.swchengqu.gov.cn", "www.gdhf.gov.cn", "www.luhe.gov.cn",
+                       "www.gdyc.gov.cn", "www.zijin.gov.cn", "www.longchuan.gov.cn",
+                       "www.lianping.gov.cn", "www.heping.gov.cn", "www.gddongyuan.gov.cn",
+                       "www.yangdong.gov.cn", "www.yangxi.gov.cn",
+                       "www.qingcheng.gov.cn", "www.fogang.gov.cn", "www.yangshan.gov.cn",
+                       "www.gdls.gov.cn", "www.yingde.gov.cn", "www.lianzhou.gov.cn",
+                       "www.jyrongcheng.gov.cn", "www.jiedong.gov.cn", "www.jiexi.gov.cn",
+                       "www.huilai.gov.cn", "www.puning.gov.cn"}
 
     @staticmethod
     def _prefer_https(url: str) -> str:
@@ -304,7 +341,12 @@ class Fetcher:
         url = self._prefer_https(url)
         waf.apply_cookie(client, url)
         try:
+            await politeness.wait_turn(url)
             resp = await client.get(url)
+            # 限流响应：立即退避该域名，不重试，让本条记为失败、下轮再抓
+            if resp.status_code in (429, 503):
+                politeness.note_rate_limited(url)
+                raise RuntimeError(f"HTTP {resp.status_code} rate limited for {url}")
             # 创宇盾 521（ydclearance）：quickjs 解内联挑战后重放
             if waf.is_challenge(resp.status_code, resp.text):
                 log.warning("WAF 521 challenge on %s, solving", url)
@@ -330,6 +372,7 @@ class Fetcher:
                     waf.apply_cookie(client, url)
                     resp = await client.get(url)
             resp.raise_for_status()
+            politeness.note_success(url)
             return self._decode(resp)
         except (
             httpx.ConnectError, httpx.ConnectTimeout, httpx.RemoteProtocolError,
@@ -365,6 +408,7 @@ class Fetcher:
         ck = waf.cookie_header(url)
         if ck:
             cmd[1:1] = ["-b", ck]
+        await politeness.wait_turn(url)
         proc = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
@@ -383,8 +427,12 @@ class Fetcher:
         if marker in text:
             body, _, code = text.rpartition(marker)
             code = code.strip()[:3]
+            if code in ("429", "503"):
+                politeness.note_rate_limited(url)
+                raise RuntimeError(f"HTTP {code} rate limited for {url}")
             if not code.startswith("2"):
                 raise RuntimeError(f"HTTP {code} for {url}")
+            politeness.note_success(url)
             text = body
         return text
 
@@ -405,6 +453,7 @@ class Fetcher:
         for key, value in (data or {}).items():
             cmd += ["--data-urlencode", f"{key}={value}"]
         cmd += ["-w", marker + "%{http_code}", url]
+        await politeness.wait_turn(url)
         proc = await asyncio.create_subprocess_exec(
             *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
         )
@@ -414,32 +463,44 @@ class Fetcher:
         text = stdout.decode("utf-8", errors="ignore")
         if marker in text:
             body, _, code = text.rpartition(marker)
-            if not code.strip()[:3].startswith("2"):
-                raise RuntimeError(f"HTTP {code.strip()[:3]} for {url}")
+            code = code.strip()[:3]
+            if code in ("429", "503"):
+                politeness.note_rate_limited(url)
+                raise RuntimeError(f"HTTP {code} rate limited for {url}")
+            if not code.startswith("2"):
+                raise RuntimeError(f"HTTP {code} for {url}")
+            politeness.note_success(url)
             text = body
         return text
 
     # ---- 列表页 ----
-    async def fetch_list(self, max_items: int = 50) -> list[ListItem]:
+    async def fetch_list(self, max_items: int = 50, page: int = 1) -> list[ListItem]:
+        """取列表页。page=1 用原始 URL；page>1 按 page_pattern 或常见规则推导。
+
+        推导不出分页 URL 时返回空列表，runner 据此停止翻页，绝不猜着打 404。
+        """
+        def _url(base: str) -> str | None:
+            if page <= 1:
+                return base
+            return page_url(base, page, self.selectors)
+
         if self.source.fetch_type == "json":
-            # 列表来自 JSON 接口（如珠海 postmeta），URL 放在 selector_config.list_api
-            api = (self.selectors.get("list_api") or self.source.list_url)
+            api = _url(self.selectors.get("list_api") or self.source.list_url)
+            if not api:
+                return []
             async with self._client() as client:
                 raw = await self.get(client, api)
             return self._parse_json_list(raw)[:max_items]
         if self.source.fetch_type == "json_post":
-            # 列表由 POST 接口渲染（江西 jpaas 数融 /queryList）：
-            # 静态 HTML 里没有文章链接，必须向接口提交表单参数拿 JSON。
-            # 该接口在 Python httpx 下触发 SSL unsafe legacy renegotiation，
-            # 统一走 curl（curl 可正常完成握手），故单独用 _curl_post。
-            api = (self.selectors.get("list_api") or self.source.list_url)
+            api = _url(self.selectors.get("list_api") or self.source.list_url)
+            if not api:
+                return []
             raw = await self._curl_post(api, self.selectors.get("post_data") or {})
             return self._parse_json_list(raw)[:max_items]
         if self.source.fetch_type == "html_api":
-            # 列表 HTML 片段嵌在 JSON 接口里（济南 jpaas /front/page/build/unit）：
-            # 取 data.html（html_path 可配置）当列表页解析；片段里的相对链接
-            # 用 list_base 拼接，不能用 API URL 本身。
-            api = (self.selectors.get("list_api") or self.source.list_url)
+            api = _url(self.selectors.get("list_api") or self.source.list_url)
+            if not api:
+                return []
             async with self._client() as client:
                 raw = await self.get(client, api)
             fragment = self._extract_api_html(raw)
@@ -448,11 +509,14 @@ class Fetcher:
             list_base = (self.selectors.get("list_base")
                          or self.source.base_url or self.source.list_url)
             return self._parse_list(fragment, list_base=list_base)[:max_items]
+        url = _url(self.source.list_url)
+        if not url:
+            return []
         async with self._client() as client:
-            html = await self.get(client, self.source.list_url)
+            html = await self.get(client, url)
         if self.source.fetch_type == "rss":
             return self._parse_rss(html)[:max_items]
-        return self._parse_list(html)[:max_items]
+        return self._parse_list(html, list_base=url)[:max_items]
 
     def _parse_json_list(self, raw: str) -> list[ListItem]:
         """解析 JSON 接口列表。
@@ -525,7 +589,7 @@ class Fetcher:
             if not title or not url or len(title) < 8:
                 continue
             # 政府网 JSON 里混有新华网/央视外链，只保留源站文章
-            if not same_site(url, base):
+            if not same_site(url, base) and not self._allow_external(url):
                 continue
             pub = None
             ts = (a.get("publish_time") or a.get("DOCRELPUBTIME")
@@ -613,11 +677,13 @@ class Fetcher:
             if not href or not title or len(title) < 8:
                 continue
             url = self._prefer_https(urljoin(link_base, href))
-            if not same_site(url, self.source.base_url or self.source.list_url):
+            if not same_site(url, self.source.base_url or self.source.list_url) \
+                    and not self._allow_external(url):
                 continue
             # 中央部委站大量使用 .htm 后缀（财政部 / 农业农村部 / 中国政府网），
             # 旧规则只认 .html|.shtml，会把整页新闻全部滤掉。
-            if not re.search(r"(post_|content/|content_\d+|art/|\.(html|shtml|htm)$)", url):
+            if not self._allow_external(url) and not re.search(
+                    r"(post_|content/|content_\d+|art/|\.(html|shtml|htm)$)", url):
                 continue
             # 栏目首页（/index.html、/index_2.html 等）不是新闻详情，
             # 抓进来只会得到机构名标题 + 空正文，直接排除。
@@ -627,7 +693,8 @@ class Fetcher:
             has_article_id = re.search(r"/\d{8,}/", url) or re.search(
                 r"(t20\d{6}_\d+|art_[0-9a-f]{16,}|content_\d+)", url, re.I
             )
-            if is_index and not has_article_id and not re.search(r"(post_|content/|art/)", url):
+            if not self._allow_external(url) and is_index and not has_article_id \
+                    and not re.search(r"(post_|content/|art/)", url):
                 continue
             if url in seen:
                 continue
@@ -655,7 +722,25 @@ class Fetcher:
         return items
 
     # ---- 详情页 ----
+    @staticmethod
+    def _rewrite_content_dir(url: str, base_dir: str, root: str) -> str | None:
+        """政务公开目录站 JS 壳页 → /gkmlpt/content/{a}/{b}/post_{id}.html。"""
+        m = re.search(r"/content/post_(\d+)\.html$", url)
+        if not m or not base_dir:
+            return None
+        pid = int(m.group(1))
+        return f"{root.rstrip('/')}/{base_dir.strip('/')}/{pid // 1000000}/{pid // 1000}/post_{pid}.html"
+
     async def fetch_detail(self, url: str) -> Detail:
+        # 政务公开目录型站点（南澳等）的文章链接是 JS 跳转壳：真实地址在
+        # /gkmlpt/content/{id//1e6}/{id//1000}/post_{id}.html。配置 content_dir_base
+        # 时按 post_id 重写到真实地址，避免抓到 253 字节的空壳页。
+        base_dir = self.selectors.get("content_dir_base")
+        if base_dir:
+            rewritten = self._rewrite_content_dir(
+                url, base_dir, self.source.base_url or "")
+            if rewritten:
+                url = rewritten
         # 金融监管总局的 ItemDetail.html 是 JS 空壳，正文在 SelectByDocId 接口里。
         # 配置 detail_api_template 时把详情页 URL 里的 docId 映射到接口。
         tmpl = self.selectors.get("detail_api_template") or ""

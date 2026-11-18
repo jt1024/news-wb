@@ -66,6 +66,20 @@
   <section class="card tab-panel" id="panel-overview">
     <h2>任务状态</h2>
     <div id="tasks"><span class="none">暂无任务 —— 点击上方按钮触发</span></div>
+
+    <h2 style="margin-top:24px">历史补抓 <span class="hint" style="font-weight:400">（补某天某地区当时没抓到的新闻，不影响日常水位）</span></h2>
+    <div class="row" style="flex-wrap:wrap;gap:8px;align-items:center">
+      <label class="hint">开始 <input type="date" id="bf-from" style="padding:6px 8px;margin-left:4px"></label>
+      <label class="hint">结束 <input type="date" id="bf-to" style="padding:6px 8px;margin-left:4px"></label>
+      <input type="text" id="bf-city" placeholder="市（如 广州市）" style="width:120px;padding:6px 8px">
+      <input type="text" id="bf-district" placeholder="区（如 天河区）" style="width:120px;padding:6px 8px">
+      <input type="text" id="bf-province" placeholder="省（如 山东省）" style="width:120px;padding:6px 8px">
+      <input type="number" id="bf-pages" value="40" min="1" max="80" title="最多翻多少页" style="width:72px;padding:6px 8px">
+      <button class="btn primary" id="btn-backfill" onclick="triggerBackfill()">开始补抓</button>
+      <span id="bf-msg" style="font-size:13px;color:var(--ok)"></span>
+    </div>
+    <div class="hint" style="margin-top:6px">只填开始=填同一天即补单日；地域留空表示全部源。补抓会翻历史列表页，耗时较长，请勿重复点击。</div>
+
     <h2 style="margin-top:24px">最近一轮 <span class="hint" style="font-weight:400">（摘要，完整信息见对应页签）</span></h2>
     <div id="overview-digest"><span class="none">加载中…</span></div>
   </section>
@@ -126,7 +140,7 @@ const TOKEN = localStorage.getItem("nb_token");
 if (!TOKEN) location.href = "/login.html";
 const H = {"Authorization": "Bearer " + TOKEN, "X-NB-Token": TOKEN, "Content-Type": "application/json"};
 
-const TASK_NAME = {fetch: "抓取更新", interpret: "AI 解读", report: "执行报告"};
+const TASK_NAME = {fetch: "抓取更新", interpret: "AI 解读", report: "执行报告", backfill: "历史补抓"};
 const STATUS_BADGE = {running: ["运行中", "running"], ok: ["已完成", "ok"], error: ["失败", "error"]};
 const LEVEL_LABEL = {national: "国家部委", province: "省级", city: "地市级", district: "区县级", area: "港澳台地区"};
 const TABS = ["overview", "sources", "logs", "reports", "review"];
@@ -298,6 +312,29 @@ async function trigger(kind) {
   btn.disabled = false;
   markDirty("overview", "sources", "logs", "reports", "review");
   pollStats();
+}
+
+async function triggerBackfill() {
+  const from = document.getElementById("bf-from").value;
+  const to = document.getElementById("bf-to").value;
+  if (!from && !to) { document.getElementById("bf-msg").textContent = "请至少填开始或结束日期"; return; }
+  const body = {
+    date_from: from || null, date_to: to || null,
+    city: document.getElementById("bf-city").value.trim(),
+    district: document.getElementById("bf-district").value.trim(),
+    province: document.getElementById("bf-province").value.trim(),
+    max_pages: parseInt(document.getElementById("bf-pages").value) || 40,
+  };
+  const btn = document.getElementById("btn-backfill");
+  btn.disabled = true;
+  document.getElementById("bf-msg").textContent = "已提交，正在后台翻历史页…";
+  try {
+    const r = await fetch("/api/admin/backfill", {method: "POST", headers: H, body: JSON.stringify(body)});
+    const data = await r.json();
+    document.getElementById("bf-msg").textContent = r.ok ? (data.message || "已启动") : (data.detail || "被拒绝");
+    if (r.ok) { markDirty("overview", "logs", "reports"); }
+  } catch (e) { document.getElementById("bf-msg").textContent = "请求失败：" + e; }
+  btn.disabled = false;
 }
 
 /* ---- 源站点：分组折叠 + 搜索筛选 ---- */

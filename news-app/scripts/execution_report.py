@@ -24,6 +24,10 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 os.chdir(ROOT)
 sys.path.insert(0, ROOT)
 
+from app.watermark_health import (  # noqa: E402
+    analyze_watermarks, unavailable_result, summary_line,
+)
+
 DB = os.path.join(ROOT, "data", "news.db")
 OUT_DIR = os.path.join(ROOT, "data", "reports")
 
@@ -75,6 +79,55 @@ def _province_expr(conn, alias, table):
         return "NULL"
     return (f"CASE WHEN {alias}.region_province NOT IN ('广东省','','全国') "
             f"THEN {alias}.region_province ELSE NULL END")
+
+
+def load_watermark(conn):
+    """读取启用源的水位字段并归类；库未迁移（缺列）时返回 unavailable。
+
+    watchdog 可能在服务启动迁移前独立调用本脚本，所以这里必须自行探测列，
+    不能直接 SELECT 水位列，否则旧库会抛 "no such column"。
+    """
+    try:
+        from app import config
+        stall = getattr(config, "WATERMARK_STALL_DAYS", 3)
+        grace = getattr(config, "WATERMARK_NEVER_GRACE_DAYS", 2)
+        circuit = getattr(config, "CIRCUIT_FAIL_THRESHOLD", 3)
+    except Exception:
+        stall, grace, circuit = 3, 2, 3
+    try:
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(sources)")}
+        if "last_max_publish" not in cols or "consecutive_fail" not in cols:
+            return unavailable_result()
+        has_selector = "selector_config" in cols
+        if has_selector:
+            rows = conn.execute(
+                """SELECT name, last_max_publish, consecutive_fail, created_at, selector_config
+                   FROM sources WHERE enabled = 1"""
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """SELECT name, last_max_publish, consecutive_fail, created_at
+                   FROM sources WHERE enabled = 1"""
+            ).fetchall()
+        data = []
+        for r in rows:
+            has_paged, paged_at = False, None
+            if has_selector and r[4]:
+                try:
+                    import json as _json
+                    cfg = _json.loads(r[4]) if isinstance(r[4], str) else (r[4] or {})
+                    has_paged = bool(cfg.get("page_pattern"))
+                    paged_at = cfg.get("_paged_at")  # 分页配置日期（宽限期基准）
+                except Exception:
+                    has_paged, paged_at = False, None
+            data.append({"name": r[0], "last_max_publish": r[1],
+                         "consecutive_fail": r[2], "created_at": r[3],
+                         "has_page_pattern": has_paged, "paged_at": paged_at})
+        return analyze_watermarks(data, datetime.now(),
+                                  stall_days=stall, grace_days=grace,
+                                  circuit_threshold=circuit)
+    except Exception:  # noqa: BLE001 报告生成绝不能被水位检查拖垮
+        return unavailable_result()
 
 
 def load_round(conn, key, lo, hi):
@@ -139,6 +192,7 @@ def load_round(conn, key, lo, hi):
         "key": key, "logs": logs, "ids": ids, "started": started, "finished": finished,
         "secs": secs, "news": news, "agg": agg, "total": total, "pending": pending,
         "ai_err": ai_err, "interpreted": interpreted,
+        "watermark": load_watermark(conn),
     }
 
 
@@ -206,10 +260,41 @@ def build_markdown(d, prev_inserted, trend):
     failed = [r for r in d["logs"] if r[3] != "ok"]
     for r in failed:
         lines.append(f"- **{e(r[8])} 源级失败**：{e(r[7] or '未知错误')} → 需关注")
-    lines += ["", "## 四、源级明细", "", "| 源 | 地域 / 机构 | 扫描 | 新增 | 重复 | 状态 | 备注 |", "| --- | --- | --- | --- | --- | --- | --- |"]
+    lines += ["", "## 四、水位健康（增量抓取覆盖度）", ""]
+    wm = d.get("watermark")
+    if wm and wm.get("available"):
+        lines.append(f"- **概览**：{wm['healthy']}/{wm['total']} 源正常"
+                     + (f"，**{wm['abnormal']} 源需核实**" if wm["abnormal"] else "，无需核实项")
+                     + f"　（水位覆盖率 {int(wm['coverage'] * 100)}%，停滞阈值 {wm['stall_days']} 天）")
+        if wm.get("cold_start"):
+            lines.append(f"- ℹ️ **水位功能上线初期**：{len(wm['pending'])} 源待后续轮次覆盖，"
+                         "暂不判定为异常（水位=已见过的最新发布日期，政务站停更属正常）")
+        if wm["issues"]:
+            for i in wm["issues"]:
+                mark = "🔴" if i["level"] == "danger" else "🟡"
+                lines.append(f"- {mark} **{e(i['name'])}**：{e(i['detail'])} → {e(i['action'])}")
+        else:
+            lines.append("- 已覆盖源的水位均在正常范围内，无停滞/熔断")
+        paged = wm.get("paged") or []
+        if paged:
+            lines += ["", f"### 已配翻页模板的源（{len(paged)} 个，逐站实测配置）"]
+            counts = {}
+            for p in paged:
+                counts[p["status"]] = counts.get(p["status"], 0) + 1
+            label = {"established": "水位已建立", "pending": "待建立",
+                     "stalled": "水位停滞", "stale": "分页疑似失效", "circuit": "熔断"}
+            summary = "、".join(f"{label.get(k, k)} {v}" for k, v in counts.items())
+            lines.append(f"- 概览：{summary}（待建立属正常，下一轮增量抓取后自动建立水位）")
+            for p in paged:
+                mark = "🔴" if p["level"] == "danger" else ("🟡" if p["level"] == "warn" else "⚪")
+                lines.append(f"- {mark} **{e(p['name'])}**：{e(p['detail'])}")
+    else:
+        lines.append("- 水位数据不可用（库尚未迁移新增字段），本次跳过；服务启动后自动启用")
+
+    lines += ["", "## 五、源级明细", "", "| 源 | 地域 / 机构 | 扫描 | 新增 | 重复 | 状态 | 备注 |", "| --- | --- | --- | --- | --- | --- | --- |"]
     for r in d["logs"]:
         lines.append(f"| {e(r[8])} | {e(r[9])} | {r[4] or 0} | {r[5] or 0} | {r[6] or 0} | {e(r[3])} | {e(r[7] or '')} |")
-    lines += ["", "## 五、库状态与下次执行", "",
+    lines += ["", "## 六、库状态与下次执行", "",
               f"- 全库 {d['total']} 篇｜已解读 {d['interpreted']}｜待解读 {d['pending']}｜AI 错误 {d['ai_err']}",
               f"- 下次执行：{next_run_text()}", ""]
     return "\n".join(lines)
@@ -297,6 +382,59 @@ def build_html(d, prev_inserted, trend):
                     f'{p_num} → <b style="font-weight:500">{a["inserted"]}</b>'
                     f'（{"+" if diff >= 0 else ""}{diff}）</div>')
 
+    # ---- 水位健康章节 ----
+    wm = d.get("watermark")
+    if wm and wm.get("available"):
+        if wm["abnormal"]:
+            wm_pill = (f'<span class="pill bad">{wm["abnormal"]} 源需核实</span>'
+                       if wm["worst"] == "danger"
+                       else f'<span class="pill warn" style="background:#FAEEDA;color:#854F0B">{wm["abnormal"]} 源需核实</span>')
+        elif wm.get("cold_start"):
+            wm_pill = '<span class="pill" style="background:#E6F1FB;color:#185FA5">覆盖中</span>'
+        else:
+            wm_pill = '<span class="pill ok">全部正常</span>'
+        wm_rows = "".join(
+            f'<tr><td><span class="tag {"bad" if i["level"] == "danger" else "warn"}">'
+            f'{"熔断" if i["kind"] == "circuit" else ("停滞" if i["kind"] == "stalled" else "无水位")}</span></td>'
+            f'<td>{e(i["name"])}</td><td>{e(i["detail"])}</td><td>{e(i["action"])}</td></tr>'
+            for i in wm["issues"]
+        )
+        cold_note = ""
+        if wm.get("cold_start"):
+            cold_note = (f'<div class="note" style="background:#EDF5FC;border-color:#C4DDF2"><b>水位功能上线初期</b>'
+                         f'：{len(wm["pending"])} 源待后续轮次覆盖，暂不判定异常；随每日抓取自动建立水位。'
+                         f'<div class="why">水位=本源已见过的最新发布日期；政务站周末/节假日停更属正常，异常项均为「请核实」而非故障。</div></div>')
+        wm_body = (
+            f'<div style="font-size:12px;color:#5F5E5A;margin-bottom:10px">'
+            f'{wm["healthy"]}/{wm["total"]} 源水位正常 · 覆盖率 {int(wm["coverage"] * 100)}% · 停滞阈值 {wm["stall_days"]} 天</div>'
+            + cold_note
+            + (f'<table><thead><tr><th>级别</th><th>源</th><th>现象</th><th>处置建议</th></tr></thead>'
+               f'<tbody>{wm_rows}</tbody></table>' if wm_rows else
+               '<div class="clean">已覆盖源的水位均在正常范围内，无停滞/熔断。</div>')
+        )
+        paged = wm.get("paged") or []
+        if paged:
+            tag_label = {"established": ("ok", "已建立"), "pending": ("", "待建立"),
+                         "stalled": ("warn", "停滞"), "stale": ("warn", "待核实"),
+                         "circuit": ("bad", "熔断")}
+            paged_rows = "".join(
+                f'<tr><td><span class="tag {tag_label.get(p["status"], ("", p["status"]))[0]}">'
+                f'{tag_label.get(p["status"], ("", p["status"]))[1]}</span></td>'
+                f'<td>{e(p["name"])}</td><td>{e(p["detail"])}</td></tr>'
+                for p in paged
+            )
+            wm_body += (
+                f'<div style="font-size:13px;font-weight:500;margin:16px 0 8px">已配翻页模板的源（{len(paged)} 个，逐站实测配置）</div>'
+                f'<div style="font-size:12px;color:#5F5E5A;margin-bottom:8px">'
+                f'这批源单独跟踪：待建立属正常，下一轮增量抓取后自动建立水位；停滞/待核实才需介入。</div>'
+                f'<table><thead><tr><th>状态</th><th>源</th><th>说明</th></tr></thead>'
+                f'<tbody>{paged_rows}</tbody></table>'
+            )
+    else:
+        wm_pill = '<span class="pill warn" style="background:#FAEEDA;color:#854F0B">不可用</span>'
+        wm_body = '<div class="clean">水位数据不可用（库尚未迁移新增字段），本次跳过；服务启动后自动启用。</div>'
+    wm_section = f'<div class="sec"><h2>四、水位健康（增量抓取覆盖度）{wm_pill}</h2>{wm_body}</div>'
+
     notes = [(r[8], r[7]) for r in d["logs"] if r[7]]
     if notes or a["failed"]:
         parts = []
@@ -338,12 +476,13 @@ def build_html(d, prev_inserted, trend):
 <div class="sec"><h2>一、总览</h2><div class="kpis">{kpi_html}</div>{cmp_html}</div>
 <div class="sec"><h2>二、本轮新增内容</h2>{news_html}</div>
 <div class="sec"><h2>三、异常与处置</h2>{warn_html}</div>
-<div class="sec"><h2>四、源级明细（{a['sources']} 个源）</h2>
+{wm_section}
+<div class="sec"><h2>五、源级明细（{a['sources']} 个源）</h2>
 <table><thead><tr><th>源</th><th>地域 / 机构</th><th>扫描</th><th>新增</th><th>重复</th><th>状态</th><th>备注</th></tr></thead>
 <tbody>{log_rows}</tbody></table></div>
-<div class="sec"><h2>五、近几轮新增趋势</h2><div class="trend">{bars}</div>
+<div class="sec"><h2>六、近几轮新增趋势</h2><div class="trend">{bars}</div>
 <div style="font-size:12px;color:#888780;margin-top:10px">深色为当前轮次；建库初期的批量补齐会造成峰值，稳态后看相对变化即可。</div></div>
-<div class="sec"><h2>六、库状态与下次执行</h2>
+<div class="sec"><h2>七、库状态与下次执行</h2>
 <div>全库 <b style="font-weight:500">{d['total']}</b> 篇　·　已解读 <b style="font-weight:500">{d['interpreted']}</b>　·　待解读 <b style="font-weight:500">{d['pending']}</b>　·　AI 错误 <b style="font-weight:500">{d['ai_err']}</b></div>
 <div style="margin-top:6px;color:#5F5E5A">下次执行：<b style="font-weight:500">{e(next_run_text())}</b>（每日 {e(cron_text())}）</div></div>
 <div class="ft">本报告由平台自动生成 · 数据来自本地 SQLite · 异常项均标注影响与处置建议</div>

@@ -30,6 +30,8 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from .watermark_health import summary_line as wm_summary
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 # override=True：定时任务以子进程方式运行，会继承服务进程启动时的旧环境变量
 # （例如把 NOTIFY_CHANNEL 从 off 改成 feishu 但没重启服务）。以 .env 文件为准，
@@ -69,13 +71,18 @@ def build_message(d: dict, html_name: str, public_url: str = "") -> tuple[str, s
     a = d["agg"]
     pending = int(d.get("pending") or 0)
     ai_err = int(d.get("ai_err") or 0)
-    degraded = bool(a["failed"] or pending or ai_err)
+    wm = d.get("watermark")
+    wm_line = wm_summary(wm)
+    wm_bad = bool(wm and wm.get("available") and wm.get("abnormal"))
+    degraded = bool(a["failed"] or pending or ai_err or wm_bad)
     hour = int(d["key"][11:13])
     slot = "早间" if hour < 9 else ("午间" if hour < 16 else "晚间")
     ok = a["failed"] == 0
     title = f"抓取报告 {d['key'][5:10]} {hour:02d}:00 {slot}轮｜新增 {a['inserted']} 篇"
     if degraded:
-        title = f"【注意】{title}｜待解读 {pending}"
+        # 标题保持一屏可读：有待解读就显示待解读，否则显示水位异常摘要
+        focus = f"待解读 {pending}" if pending else wm_line
+        title = f"【注意】{title}｜{focus}"
 
     lines = [
         f"**状态**：{'全部成功' if ok else str(a['failed']) + ' 个源失败'}",
@@ -91,6 +98,13 @@ def build_message(d: dict, html_name: str, public_url: str = "") -> tuple[str, s
             )
         if a["failed"]:
             lines.append(f"- {a['failed']} 个源级失败，下轮自动重试")
+        if wm_bad:
+            kinds = {}
+            for i in wm["issues"]:
+                kinds[i["kind"]] = kinds.get(i["kind"], 0) + 1
+            label = {"circuit": "连续失败熔断", "stalled": "水位停滞", "never": "从未建立水位"}
+            lines.append("- **" + "、".join(f"{label.get(k, k)} {v} 源" for k, v in kinds.items())
+                         + "**：多为站点停更/改版/反爬；低频源可忽略，异常源见完整报告逐条处置建议")
         lines.append("")
     lines.append("**本轮新增**")
     if d["news"]:
@@ -195,7 +209,9 @@ def push_report(d: dict, html_path: str, md_path: str = "") -> dict:
     from .publisher import public_url
 
     a = d["agg"]
-    red = bool(a["failed"] or d.get("pending") or d.get("ai_err"))
+    wm = d.get("watermark") or {}
+    wm_red = bool(wm.get("available") and wm.get("worst") == "danger")
+    red = bool(a["failed"] or d.get("pending") or d.get("ai_err") or wm_red)
     url = public_url()
     title, markdown = build_message(d, os.path.basename(html_path), url)
     return _dispatch(title, markdown, red=red, link=url or None, extra={
@@ -203,6 +219,8 @@ def push_report(d: dict, html_path: str, md_path: str = "") -> dict:
         "report_md": os.path.basename(md_path) if md_path else "",
         "report_url": url,
         "round": d["key"],
+        "watermark_abnormal": wm.get("abnormal", 0),
+        "watermark_summary": wm_summary(wm),
     })
 
 
