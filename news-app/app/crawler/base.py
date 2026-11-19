@@ -313,7 +313,15 @@ class Fetcher:
                        "www.qingcheng.gov.cn", "www.fogang.gov.cn", "www.yangshan.gov.cn",
                        "www.gdls.gov.cn", "www.yingde.gov.cn", "www.lianzhou.gov.cn",
                        "www.jyrongcheng.gov.cn", "www.jiedong.gov.cn", "www.jiexi.gov.cn",
-                       "www.huilai.gov.cn", "www.puning.gov.cn"}
+                       "www.huilai.gov.cn", "www.puning.gov.cn",
+                       # 海南五指山市门户：https 握手失败，只有 http 明文可用（2026-11-19 实测）
+                       "wzs.hainan.gov.cn",
+                       # 四直辖市区县门户（2026-11-20 实测）：以下站 https 证书域名
+                       # 不匹配/TLS 握手失败，curl 走 http 明文实测可解析列表+正文。
+                       "www.jiading.gov.cn", "www.tjhb.gov.cn",
+                       "www.fl.gov.cn", "www.cqlp.gov.cn", "www.cqsdj.gov.cn",
+                       "www.cqwx.gov.cn", "www.cqxs.gov.cn", "www.psx.gov.cn",
+                       "www.zhongxian.gov.cn"}
 
     @staticmethod
     def _prefer_https(url: str) -> str:

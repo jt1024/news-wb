@@ -160,6 +160,11 @@ async def fetch_source(
 
     # 增量用「水位回退」当早停线；补抓用 date_from 当早停线（列表按时间倒序）
     threshold = date_from if is_backfill else _threshold_for(source)
+    # 冷启动日期下限：新源（水位为空）首次抓取最多往前追 N 天，更旧的直接跳过。
+    # 2026-11-19 加入：批量接入新源时曾把半年前旧闻全捞入库，撑爆解读队列。
+    cold_floor = None
+    if not is_backfill and threshold is None:
+        cold_floor = datetime.now() - timedelta(days=config.COLD_START_MAX_AGE_DAYS)
 
     found = inserted = duplicated = suppressed_n = detail_failed = empty_skipped = 0
     pages_done = 0
@@ -183,6 +188,10 @@ async def fetch_source(
 
             for item in items:
                 pub = item.publish_time
+
+                # 冷启动下限：列表阶段就能确定过旧的直接跳过，不下载详情
+                if cold_floor is not None and pub is not None and pub < cold_floor:
+                    continue
 
                 # 水位候选：所有「已见过」的条目都算，含被去重/抑制跳过的。
                 # 否则列表前排的已抓稿被去重后，水位会停在老稿日期，下轮反复重扫。

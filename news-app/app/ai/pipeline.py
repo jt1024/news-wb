@@ -6,6 +6,7 @@ import time
 from datetime import datetime
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from .. import config
@@ -156,25 +157,140 @@ def _apply_result(db: Session, news: News, data: dict, model: str = ""):
         news.content_type = "news"
 
     # 打标签
+    # 按 tag.id 判重：SQLAlchemy 会话里同一标签可能是不同 Python 实例，
+    # 用 `tag not in news.tags`（对象身份比较）会漏判，重复 append 到关联表
+    # 触发 news_tags 唯一约束 (news_id, tag_id) 冲突，导致整个 worker 崩溃退出。
+    existing_tag_ids = {t.id for t in news.tags if t.id is not None}
     for name in (data.get("tags") or [])[:3]:
         name = str(name).strip()[:40]
         if not name:
             continue
         tag = db.execute(select(Tag).where(Tag.name == name)).scalar_one_or_none()
         if not tag:
-            tag = Tag(name=name, category="theme")
-            db.add(tag)
-            db.flush()
-        if tag not in news.tags:
+            # 并发下另一个会话可能刚建了同名标签，flush 会撞 tags.name 唯一约束。
+            # 用保存点隔离，避免 rollback 把本篇已写入的摘要等字段一起回滚。
+            try:
+                with db.begin_nested():
+                    tag = Tag(name=name, category="theme")
+                    db.add(tag)
+                    db.flush()
+            except IntegrityError:
+                tag = db.execute(select(Tag).where(Tag.name == name)).scalar_one_or_none()
+                if tag is None:
+                    continue
+        if tag.id not in existing_tag_ids:
             news.tags.append(tag)
+            existing_tag_ids.add(tag.id)
 
     news.status = "interpreted"
     news.review_status = "pending" if news.ai_confidence < 0.6 else "auto"
     news.interpreted_at = datetime.now()
 
 
+# ---- 粗略解读（旧闻批量档）----
+# 分界日之前的旧新闻：一次 AI 调用打包多篇，只出短摘要，不算要点/影响分析，
+# 不打标签、不进人工复核队列。token 省约 2/3，速度提升数倍。
+
+ROUGH_SYSTEM_PROMPT = (
+    "你是政务新闻编辑。输入若干篇政务新闻（每篇以 [数字id] 开头）。"
+    '为每一篇输出一个80字内的中文短摘要，严格输出 JSON 对象：'
+    '{"items": [{"id": 数字, "summary": "短摘要"}]}，'
+    "items 数组必须覆盖全部输入 id，顺序不限。只输出 JSON，不要其他文字。"
+)
+
+
+def rough_cutoff() -> datetime:
+    try:
+        return datetime.strptime(config.ROUGH_INTERPRET_CUTOFF, "%Y-%m-%d")
+    except (ValueError, TypeError):
+        return datetime(2026, 10, 1)
+
+
+def is_rough(news: News) -> bool:
+    """分界日之前的旧闻走粗略档；无日期的按细致档处理，不误伤。"""
+    pt = news.publish_time
+    return pt is not None and pt < rough_cutoff()
+
+
+def _rough_item_text(news: News) -> str:
+    text = (news.content_text or "").strip()
+    if len(text) < 40:
+        text = f"{news.title} {text}".strip()
+    return text[:500]
+
+
+def interpret_rough_batch(db: Session, news_list: list[News],
+                          retries: int | None = None) -> tuple[int, int]:
+    """一次 AI 调用粗略解读多篇旧闻。返回 (ok, failed)。
+
+    失败语义：解析失败/漏掉的条目保持 status=fetched，下一轮自动重试，
+    不写终态 ai_error（旧闻价值低，不值得为它们烧重试额度）。
+    """
+    retries = config.INTERPRET_RETRIES if retries is None else retries
+    by_id = {n.id: n for n in news_list}
+    prompt = "\n\n".join(f"[{n.id}] {n.title}\n{_rough_item_text(n)}" for n in news_list)
+    last_err = ""
+    for attempt in range(retries + 1):
+        meta: dict = {}
+        try:
+            raw = chat(
+                [{"role": "system", "content": ROUGH_SYSTEM_PROMPT},
+                 {"role": "user", "content": prompt}],
+                model=config.ai_model(), meta=meta, max_tokens=4000,
+            )
+            data = parse_llm_json(raw)
+        except AIQuotaError:
+            # 与细致档一致：额度耗尽立即中止，新闻保持 fetched 等下轮
+            raise
+        except AIRateLimitError as e:
+            last_err = str(e)[:500]
+            wait = 3 * (2 ** attempt)
+            log.warning("rough batch rate limited, sleep %ss (attempt %d)", wait, attempt + 1)
+            time.sleep(wait)
+            continue
+        except Exception as e:  # noqa: BLE001
+            last_err = str(e)[:500]
+            log.warning("rough batch attempt %d failed: %s", attempt + 1, last_err)
+            continue
+        arr = (data.get("items") or data.get("summaries")
+               or data.get("results") or [])
+        if not arr and data.get("id") is not None:
+            # 模型偶尔无视包装直接返回单个条目对象
+            arr = [data]
+        if not isinstance(arr, list) or not arr:
+            last_err = f"返回结构异常: {str(data)[:200]}"
+            log.warning("rough batch parse failed: %s", last_err)
+            continue
+        ok = 0
+        for entry in arr:
+            if not isinstance(entry, dict):
+                continue
+            news = by_id.get(entry.get("id"))
+            if news is None or news.status != "fetched":
+                continue
+            news.ai_summary = str(entry.get("summary", "")).strip()[:300]
+            news.ai_key_points = []
+            news.ai_analysis = ""
+            news.ai_confidence = 0.4
+            news.ai_model = meta.get("model") or config.ai_model()
+            news.ai_error = ""
+            news.content_type = "news"
+            news.tags = list(news.tags)  # 不新增标签
+            news.status = "interpreted"
+            news.review_status = "auto"
+            news.interpreted_at = datetime.now()
+            ok += 1
+        db.commit()
+        return ok, len(news_list) - ok
+    log.warning("rough batch gave up after retries: %s", last_err)
+    return 0, len(news_list)
+
+
 def run_interpret(batch_size: int = 20, progress_cb=None) -> dict:
-    """处理一批待解读新闻。batch_size 不传时使用配置默认值。"""
+    """处理一批待解读新闻。batch_size 不传时使用配置默认值。
+
+    2026-11-19 起按日期两档路由：分界日之前走粗略批量解读，之后逐篇细致解读。
+    """
     batch_size = batch_size or config.INTERPRET_BATCH_SIZE
     db: Session = SessionLocal()
     try:
@@ -183,14 +299,31 @@ def run_interpret(batch_size: int = 20, progress_cb=None) -> dict:
         ).scalars().all()
         total = len(pending)
         ok = failed = 0
-        for i, news in enumerate(pending):
+        rough = [n for n in pending if is_rough(n)]
+        detail = [n for n in pending if not is_rough(n)]
+
+        def _progress(done: int, current: str):
             if progress_cb:
-                progress_cb({"phase": "解读中", "done": i, "total": total,
-                             "current": news.title[:24]})
+                progress_cb({"phase": "解读中", "done": done, "total": total,
+                             "current": current[:24]})
+
+        done = 0
+        chunk_size = max(1, config.ROUGH_INTERPRET_BATCH)
+        for i in range(0, len(rough), chunk_size):
+            chunk = rough[i:i + chunk_size]
+            _progress(done, chunk[0].title)
+            c_ok, c_fail = interpret_rough_batch(db, chunk)
+            ok += c_ok
+            failed += c_fail
+            done += len(chunk)
+            db.commit()
+        for news in detail:
+            _progress(done, news.title)
             if interpret_one(db, news):
                 ok += 1
             else:
                 failed += 1
+            done += 1
             db.commit()
         return {"processed": total, "ok": ok, "failed": failed}
     finally:

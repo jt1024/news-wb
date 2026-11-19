@@ -12,6 +12,8 @@ from .province_city_sources import PROVINCE_CITY_SOURCES  # noqa: F401
 from .shandong_district_sources import SHANDONG_DISTRICT_SOURCES  # noqa: F401
 from .shandong_district_batch2 import SHANDONG_DISTRICT_BATCH2  # noqa: F401
 from .guangdong_district_sources import GUANGDONG_DISTRICT_SOURCES  # noqa: F401
+from .hainan_sources import HAINAN_SOURCES  # noqa: F401
+from .municipal_district_sources import MUNICIPAL_DISTRICT_SOURCES  # noqa: F401
 
 # 港澳台地区分组（固定展示顺序）。「港澳综合」收中央港澳工作部门的跨地区稿件。
 AREA_LABELS = ("中国香港", "中国澳门", "中国台湾", "港澳综合")
@@ -748,3 +750,13 @@ SEED_SOURCES.extend(SHANDONG_DISTRICT_BATCH2)
 # 覆盖广州以外 18 个地级市的全部区县（东莞/中山无区县建制）；
 # 同上维度，45 站走 http 明文白名单，5 源放行官方公众号外链。
 SEED_SOURCES.extend(GUANGDONG_DISTRICT_SOURCES)
+
+# ===== 海南市区县门户（2026-11-19 接入，26 源）=====
+# 海口 4 区 / 三亚 4 区 / 儋州 / 五指山 / 省直辖 15 市县 + 海口·三亚·儋州市级；
+# 26 源经 Fetcher 实测列表可解析、正文非空；wzs.hainan.gov.cn 走 http 明文。
+SEED_SOURCES.extend(HAINAN_SOURCES)
+
+# ===== 四直辖市区县门户（2026-11-20 接入，70 源）=====
+# 北京/上海/天津各区 + 重庆各区县，level=district；70 源经 Fetcher+curl 实测
+# 列表可解析、正文非空；9 域因 https 证书问题走 http 明文白名单。
+SEED_SOURCES.extend(MUNICIPAL_DISTRICT_SOURCES)

@@ -115,6 +115,9 @@ BACKFILL_CONCURRENCY = int(os.getenv("BACKFILL_CONCURRENCY", "3"))
 # 新源启用未满 N 天、水位仍为空属正常建立期，不算异常。
 WATERMARK_STALL_DAYS = int(os.getenv("WATERMARK_STALL_DAYS", "3"))
 WATERMARK_NEVER_GRACE_DAYS = int(os.getenv("WATERMARK_NEVER_GRACE_DAYS", "2"))
+# 冷启动日期下限：新源首次抓取最多往前追 N 天，更旧的历史稿不入库。
+# 防止批量接入新源时，冷启动深翻把半年前的旧闻全捞回来（撑爆解读队列）。
+COLD_START_MAX_AGE_DAYS = int(os.getenv("COLD_START_MAX_AGE_DAYS", "60"))
 
 # ---- 安全抓取 ----
 # 同一域名两次请求的最小间隔（秒），带随机抖动，降低被限流/封禁风险。
@@ -156,3 +159,7 @@ CRON_MINUTE = int(os.getenv("CRON_MINUTE", "30"))
 # ---- AI 解读 ----
 INTERPRET_BATCH_SIZE = int(os.getenv("INTERPRET_BATCH_SIZE", "20"))
 INTERPRET_RETRIES = int(os.getenv("INTERPRET_RETRIES", "2"))
+# 两档解读：分界日当天及之后走细致解读（逐篇全量），之前走粗略解读
+# （一次 AI 调用打包多篇，只出短摘要），既省 token 又提速。
+ROUGH_INTERPRET_CUTOFF = os.getenv("ROUGH_INTERPRET_CUTOFF", "2026-10-01")
+ROUGH_INTERPRET_BATCH = int(os.getenv("ROUGH_INTERPRET_BATCH", "10"))

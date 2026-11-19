@@ -163,6 +163,8 @@ function regionParams(sel, prefix) {
   }
   const prov = findProv(sel.l1);
   if (!prov) return p;
+  // 港澳台新闻只标到地区一级（region_area），region_city/region_district 为空；
+  // 二三级仅作展示，不参与筛选，否则选具体市/区必然零结果。
   if (prov.kind === "area") { p[prefix + "area"] = prov.name; return p; }
   p[prefix + "province"] = prov.name;
   if (sel.l2) p[prefix + "city"] = sel.l2;
@@ -195,12 +197,12 @@ function upper2Options(l1) {
   if (!l1) return [["", "全部"]];
   if (isNational(l1)) return [["", "全部部委"]].concat(ORGS.map(o => [o, o]));
   const prov = findProv(l1);
-  if (!prov || prov.flat) return [["", "全部"]];
+  if (!prov || !prov.cities || !prov.cities.length) return [["", "全部"]];
   return [["", "全部地市"]].concat(prov.cities.map(c => [c.name, c.name]));
 }
 function upper3Options(l1, l2) {
   const prov = findProv(l1);
-  if (!prov || prov.flat || !l2 || isNational(l1)) return [["", "全部"]];
+  if (!prov || !l2 || isNational(l1) || !prov.cities) return [["", "全部"]];
   const city = prov.cities.find(c => c.name === l2);
   if (!city || !city.districts.length) return [["", "全部"]];
   return [["", "全部区县"]].concat(city.districts.map(d => [d.name, d.name]));
@@ -214,7 +216,7 @@ function renderUpper() {
   fillSelect("u3", upper3Options(l1, l2), old3);
   const prov = findProv(l1);
   const show2 = !!l1;                                   // 选了国家部委或省才显示第二级
-  const show3 = !!l1 && !isNational(l1) && !!prov && !prov.flat && !!l2;
+  const show3 = !!l1 && !isNational(l1) && !!prov && !!prov.cities && !!l2;
   document.getElementById("u2").style.display = show2 ? "" : "none";
   document.getElementById("u3").style.display = show3 ? "" : "none";
 }
@@ -258,7 +260,7 @@ function renderTags() {
   if (isNational(C.b.l1)) l2 = l2.concat(ORGS.map(o => [o, o]));
   else {
     const prov = findProv(C.b.l1);
-    if (prov && !prov.flat) l2 = l2.concat(prov.cities.map(c => [c.name, c.name]));
+    if (prov && prov.cities && prov.cities.length) l2 = l2.concat(prov.cities.map(c => [c.name, c.name]));
   }
   const box2 = document.getElementById("tags2");
   box2.innerHTML = l2.map(x => tagHtml(x[0], x[1], C.b.l2 === x[0], x[0] === "")).join("");
@@ -268,7 +270,7 @@ function renderTags() {
 
   let l3 = [["", "全部"]];
   const prov = findProv(C.b.l1);
-  if (prov && !prov.flat && C.b.l2) {
+  if (prov && prov.cities && C.b.l2) {
     const city = prov.cities.find(c => c.name === C.b.l2);
     if (city && city.districts.length) l3 = l3.concat(city.districts.map(d => [d.name, d.name]));
   }
