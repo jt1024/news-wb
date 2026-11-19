@@ -111,6 +111,18 @@ from app.main import app
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", "8300")), workers=1)
 ''', encoding="utf-8")
+    # 发布沙箱的启动探测默认找 main.py（实测报 can't open file '/workspace/main.py'）。
+    # 同时提供 main.py 入口，避免平台忽略 serve.py 而启动失败；两者等价。
+    (OUT / "main.py").write_text('''"""平台默认入口：与 serve.py 等价，监听 $PORT 绑定 0.0.0.0。"""
+import os
+
+import uvicorn
+
+from app.main import app
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", "8300")), workers=1)
+''', encoding="utf-8")
 
     pwd, secret = _credentials_for_publish(prev)
     (OUT / ".env").write_text(f'''# 线上只读快照专用配置：不含任何 AI Key / 飞书 Webhook / 本地口令
