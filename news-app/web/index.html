@@ -154,6 +154,8 @@ function findProv(name) { return REGIONS.find(p => p.name === name) || null; }
 function isNational(name) { return name === "national"; }
 // 二级下拉里的「省级」哨兵值：省级政府新闻 city/district 为空，靠 level=province 筛
 const PROVINCE_LEVEL_VALUE = "__province_level__";
+// 三级下拉里的「市级」哨兵值：地市级政府新闻 district 为空，靠 level=city 筛
+const CITY_LEVEL_VALUE = "__city_level__";
 
 /* 把一套地区选择映射为后端筛选参数；prefix="" 上部，prefix="b_" 中部 */
 function regionParams(sel, prefix) {
@@ -176,6 +178,11 @@ function regionParams(sel, prefix) {
     return p;
   }
   if (sel.l2) p[prefix + "city"] = sel.l2;
+  // 三级选「市级」：地市级政府本级新闻 district 为空，用 level=city 精确筛
+  if (sel.l3 === CITY_LEVEL_VALUE) {
+    p[prefix + "level"] = "city";
+    return p;
+  }
   if (sel.l3) p[prefix + "district"] = sel.l3;
   return p;
 }
@@ -210,13 +217,20 @@ function upper2Options(l1) {
   if (prov.kind === "area") return [["", "全部"]].concat(prov.cities.map(c => [c.name, c.name]));
   return [["", "全部"], [PROVINCE_LEVEL_VALUE, "省级"]].concat(prov.cities.map(c => [c.name, c.name]));
 }
+// 普通省份才有「地级市」层级（市级新闻 level=city）；直辖市市级=省级、港澳台按地区整体处理，都不加市级项
+function hasCityLevel(prov) { return !!(prov && prov.flat === false && prov.kind !== "area"); }
 function upper3Options(l1, l2) {
   const prov = findProv(l1);
   if (!prov || !l2 || isNational(l1) || !prov.cities) return [["", "全部"]];
   if (l2 === PROVINCE_LEVEL_VALUE) return [["", "全部"]];  // 省级无下级
   const city = prov.cities.find(c => c.name === l2);
-  if (!city || !city.districts.length) return [["", "全部"]];
-  return [["", "全部区县"]].concat(city.districts.map(d => [d.name, d.name]));
+  if (!city) return [["", "全部"]];
+  const districts = city.districts || [];
+  if (hasCityLevel(prov)) {
+    // 全市=市级+所有区县（l3 为空），市级=仅政府本级（level=city），再列出各区县
+    return [["", "全市"], [CITY_LEVEL_VALUE, "市级"]].concat(districts.map(d => [d.name, d.name]));
+  }
+  return [["", "全部区县"]].concat(districts.map(d => [d.name, d.name]));
 }
 function renderUpper() {
   const l1 = document.getElementById("u1").value;
@@ -288,7 +302,13 @@ function renderTags() {
     // 省级无下级，三级区只剩「全部」
   } else if (prov && prov.cities && C.b.l2) {
     const city = prov.cities.find(c => c.name === C.b.l2);
-    if (city && city.districts.length) l3 = l3.concat(city.districts.map(d => [d.name, d.name]));
+    if (city) {
+      if (hasCityLevel(prov)) {
+        l3[0] = ["", "全市"];  // 该市市级+所有区县
+        l3.push([CITY_LEVEL_VALUE, "市级"]);  // 仅政府本级
+      }
+      if (city.districts && city.districts.length) l3 = l3.concat(city.districts.map(d => [d.name, d.name]));
+    }
   }
   const box3 = document.getElementById("tags3");
   box3.innerHTML = l3.map(x => tagHtml(x[0], x[1], C.b.l3 === x[0], x[0] === "")).join("");
