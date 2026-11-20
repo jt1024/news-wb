@@ -152,6 +152,8 @@ function logout() {
 }
 function findProv(name) { return REGIONS.find(p => p.name === name) || null; }
 function isNational(name) { return name === "national"; }
+// 二级下拉里的「省级」哨兵值：省级政府新闻 city/district 为空，靠 level=province 筛
+const PROVINCE_LEVEL_VALUE = "__province_level__";
 
 /* 把一套地区选择映射为后端筛选参数；prefix="" 上部，prefix="b_" 中部 */
 function regionParams(sel, prefix) {
@@ -168,6 +170,11 @@ function regionParams(sel, prefix) {
   // 二三级仅作展示，不参与筛选，否则选具体市/区必然零结果。
   if (prov.kind === "area") { p[prefix + "area"] = prov.name; return p; }
   p[prefix + "province"] = prov.name;
+  // 二级选「省级」：省级政府新闻 city/district 为空，用 level=province 精确筛
+  if (sel.l2 === PROVINCE_LEVEL_VALUE) {
+    p[prefix + "level"] = "province";
+    return p;
+  }
   if (sel.l2) p[prefix + "city"] = sel.l2;
   if (sel.l3) p[prefix + "district"] = sel.l3;
   return p;
@@ -199,11 +206,14 @@ function upper2Options(l1) {
   if (isNational(l1)) return [["", "全部部委"]].concat(ORGS.map(o => [o, o]));
   const prov = findProv(l1);
   if (!prov || !prov.cities || !prov.cities.length) return [["", "全部"]];
-  return [["", "全部地市"]].concat(prov.cities.map(c => [c.name, c.name]));
+  // 港澳台无省级概念，不加省级项
+  if (prov.kind === "area") return [["", "全部"]].concat(prov.cities.map(c => [c.name, c.name]));
+  return [["", "全部"], [PROVINCE_LEVEL_VALUE, "省级"]].concat(prov.cities.map(c => [c.name, c.name]));
 }
 function upper3Options(l1, l2) {
   const prov = findProv(l1);
   if (!prov || !l2 || isNational(l1) || !prov.cities) return [["", "全部"]];
+  if (l2 === PROVINCE_LEVEL_VALUE) return [["", "全部"]];  // 省级无下级
   const city = prov.cities.find(c => c.name === l2);
   if (!city || !city.districts.length) return [["", "全部"]];
   return [["", "全部区县"]].concat(city.districts.map(d => [d.name, d.name]));
@@ -217,7 +227,7 @@ function renderUpper() {
   fillSelect("u3", upper3Options(l1, l2), old3);
   const prov = findProv(l1);
   const show2 = !!l1;                                   // 选了国家部委或省才显示第二级
-  const show3 = !!l1 && !isNational(l1) && !!prov && !!prov.cities && !!l2;
+  const show3 = !!l1 && !isNational(l1) && !!prov && !!prov.cities && !!l2 && l2 !== PROVINCE_LEVEL_VALUE && prov.kind !== "area";
   document.getElementById("u2").style.display = show2 ? "" : "none";
   document.getElementById("u3").style.display = show3 ? "" : "none";
 }
@@ -261,7 +271,10 @@ function renderTags() {
   if (isNational(C.b.l1)) l2 = l2.concat(ORGS.map(o => [o, o]));
   else {
     const prov = findProv(C.b.l1);
-    if (prov && prov.cities && prov.cities.length) l2 = l2.concat(prov.cities.map(c => [c.name, c.name]));
+    if (prov && prov.cities && prov.cities.length) {
+      if (prov.kind !== "area") l2 = l2.concat([[PROVINCE_LEVEL_VALUE, "省级"]]);
+      l2 = l2.concat(prov.cities.map(c => [c.name, c.name]));
+    }
   }
   const box2 = document.getElementById("tags2");
   box2.innerHTML = l2.map(x => tagHtml(x[0], x[1], C.b.l2 === x[0], x[0] === "")).join("");
@@ -271,7 +284,9 @@ function renderTags() {
 
   let l3 = [["", "全部"]];
   const prov = findProv(C.b.l1);
-  if (prov && prov.cities && C.b.l2) {
+  if (C.b.l2 === PROVINCE_LEVEL_VALUE) {
+    // 省级无下级，三级区只剩「全部」
+  } else if (prov && prov.cities && C.b.l2) {
     const city = prov.cities.find(c => c.name === C.b.l2);
     if (city && city.districts.length) l3 = l3.concat(city.districts.map(d => [d.name, d.name]));
   }
