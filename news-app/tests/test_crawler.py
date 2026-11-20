@@ -17,6 +17,7 @@ from app.crawler.base import (
     _is_footer_only,
     _parse_date,
     _parse_date_from_url,
+    _title_from_link,
     same_site,
 )
 from bs4 import BeautifulSoup
@@ -58,6 +59,37 @@ class CleanTitleTests(unittest.TestCase):
             "全国首个游艇水污染物全接收政策落地三亚",
         )
         self.assertEqual(_clean_title("会议召开 2026年11月6日"), "会议召开")
+
+
+class StructuredTitleTests(unittest.TestCase):
+    """重庆区县站「日期块 + 内容块」列表项：标题不能被拍成日期+摘要长串。"""
+
+    def test_date_plus_con_p(self):
+        # 酉阳：date + con>p(真标题) + con>span(摘要)
+        html = ('<a href="/x.html"><div class="date"><p>18</p><span>2026.11</span></div>'
+                '<div class="con"><p>县委常委会召开扩大会议</p>'
+                '<span>11月17日，县委常委会召开扩大会议，学习贯彻…</span></div></a>')
+        a = BeautifulSoup(html, "lxml").a
+        self.assertEqual(_clean_title(_title_from_link(a)), "县委常委会召开扩大会议")
+
+    def test_date_box_plus_title_box_plain_text(self):
+        # 黔江：date-box + title-box(纯文本，无 p 标签)
+        html = ('<a href="/y.html"><div class="date-box"><span>20</span>'
+                '<span>2026-11</span></div>'
+                '<div class="title-box">2026年武陵山片区广电传媒协作体年会在重庆黔江举行</div></a>')
+        a = BeautifulSoup(html, "lxml").a
+        self.assertEqual(_clean_title(_title_from_link(a)),
+                         "2026年武陵山片区广电传媒协作体年会在重庆黔江举行")
+
+    def test_plain_link_unchanged(self):
+        a = BeautifulSoup('<a href="/z.html">普通新闻标题测试</a>', "lxml").a
+        self.assertEqual(_clean_title(_title_from_link(a)), "普通新闻标题测试")
+
+    def test_no_date_block_keeps_all_text(self):
+        # 无日期块时不启用结构化提取，行为与原来一致
+        html = '<a href="/w.html"><div class="foo"><p>标题A</p><p>摘要B</p></div></a>'
+        a = BeautifulSoup(html, "lxml").a
+        self.assertEqual(_clean_title(_title_from_link(a)), "标题A摘要B")
 
 
 class SameSiteTests(unittest.TestCase):

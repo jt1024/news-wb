@@ -157,6 +157,72 @@ def _clean_title(raw: str) -> str:
     return re.sub(r"[\s　]*20\d{2}[-/年.]\d{1,2}[-/月.]\d{1,2}日?\s*$", "", t).strip()
 
 
+# 「日期块 + 内容块」型列表项的标题容器 class。这类站（酉阳政府等）把链接
+# 拍平成「18 2026.11 真标题 摘要…」：日期在 .date，真标题在 .con 的 <p>/<h*>，
+# 摘要在 .con 的 <span>。直接 a.get_text() 会把三者拼成超长脏标题。
+_TITLE_BLOCK_CLASSES = ("con", "content", "info", "txt", "title", "tit")
+_DATE_BLOCK_CLASSES = ("date", "time", "day")
+
+
+def _title_from_link(a) -> str:
+    """从列表链接里提取标题：优先取结构化内容块里的标题元素。
+
+    仅当链接内存在「日期块」时才启用结构化提取（避免误伤普通 <a>标题</a>）：
+      <a><div class="date">18<span>2026.11</span></div>
+          <div class="con"><p>真标题</p><span>摘要…</span></div></a>
+      <a><div class="date-box">20<span>2026-11</span></div>
+          <div class="title-box">真标题</div></a>
+    class 支持连字符变体（date-box / title-box / con-box 等）。
+    取内容块里第一个 <p>/<h*>；没有则取内容块自身文本（去掉纯数字/日期子节点）。
+    取不到才回退整段文本。
+    """
+    def _has_class(el, names):
+        # 精确匹配或 name 作为连分词前缀（date / date-box / title / title-box）
+        return any(c.lower() in names or any(c.lower().startswith(n + "-") for n in names)
+                   for c in (el.get("class") or []))
+
+    children = [c for c in a.find_all(True, recursive=False)]
+    date_blocks = [c for c in children if _has_class(c, _DATE_BLOCK_CLASSES)]
+    if not date_blocks:
+        return a.get_text()
+    # 内容块：优先已知 class，其次退而求其次取任意含 <p>/<h*> 的非日期子块
+    content = None
+    for c in children:
+        if c in date_blocks:
+            continue
+        if _has_class(c, _TITLE_BLOCK_CLASSES):
+            content = c
+            break
+    if content is None:
+        for c in children:
+            if c in date_blocks:
+                continue
+            if c.find(["p", "h1", "h2", "h3", "h4", "h5", "h6"]):
+                content = c
+                break
+    if content is not None:
+        head = content.find(["p", "h1", "h2", "h3", "h4", "h5", "h6"])
+        if head is not None:
+            t = head.get_text(" ", strip=True)
+            if t:
+                return t
+        # 内容块没有 p/h：拼接其文本节点与非日期子元素，排除 span 里的纯数字/年月
+        parts = []
+        for node in content.children:
+            if getattr(node, "name", None):
+                tx = node.get_text(" ", strip=True)
+                if re.fullmatch(r"[\d\s.\-/年月]+", tx):
+                    continue
+            else:
+                tx = str(node).strip()
+            if tx:
+                parts.append(tx)
+        t = " ".join(parts).strip()
+        if t:
+            return t
+    return a.get_text()
+
+
 # 公共后缀：不能作为「父域」把不相干的政务站串成同站
 PUBLIC_SUFFIXES = {
     "cn", "com", "net", "org", "gov.cn", "com.cn", "org.cn", "net.cn",
@@ -681,7 +747,7 @@ class Fetcher:
             # 部分站点（如增城）链接写成 href=" http://..."，前导空格会让
             # urljoin 产出带空格的 URL，后续 httpx 报 UnsupportedProtocol。
             href = (a.get("href") or "").strip()
-            title = _clean_title(a.get("title") or a.get_text())
+            title = _clean_title(a.get("title") or _title_from_link(a))
             if not href or not title or len(title) < 8:
                 continue
             url = self._prefer_https(urljoin(link_base, href))
