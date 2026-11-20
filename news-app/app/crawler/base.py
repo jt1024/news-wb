@@ -8,7 +8,7 @@ from datetime import datetime
 from urllib.parse import urljoin, urlparse
 
 import httpx
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, NavigableString, Tag
 
 from .. import config
 from . import politeness, waf
@@ -82,6 +82,54 @@ FOOTER_RE = re.compile(r"版权所有|ICP备|网站标识码|主办单位|主办
 
 def _is_footer_only(raw: str) -> bool:
     return len(raw.strip()) < 400 and len(FOOTER_RE.findall(raw)) >= 2
+
+
+# 正文抽取：按 HTML 块级标签换行，行内标签文字直接拼接。
+# 政务公文常把文号/带样式段落拆成大量 <span>（如 <span>京</span><span>西</span>…），
+# node.get_text("\n") 会在每个文本节点间插换行，导致「京/西/民/先公/告﹝/2026」一字一行。
+# 改为只有块级标签才产生换行边界，行内 span/font/a 等直接连成一行。
+_BLOCK_TAGS = frozenset(
+    "p div br hr h1 h2 h3 h4 h5 h6 li ul ol dl dt dd tr table thead tbody "
+    "section article header footer blockquote pre center".split()
+)
+# 表格单元格按行保留，不被合并；td/th 之间用制表分隔，tr 之间换行
+_CELL_TAGS = frozenset(("td", "th"))
+
+
+def _text_from_node(node: Tag) -> str:
+    """按块级结构把正文节点转成多行文本；行内 span 拼接，表格保持逐行。
+
+    与 node.get_text("\\n") 的区别：后者在每个文本节点之间插换行，遇到被
+    <span> 切碎的公文文号就一字一行。本函数只在块级边界换行。
+    """
+    parts: list[str] = []
+
+    def walk(n: Tag) -> None:
+        for ch in n.children:
+            if isinstance(ch, NavigableString):
+                parts.append(str(ch))
+            elif isinstance(ch, Tag):
+                if ch.name in _CELL_TAGS:
+                    parts.append("\t")
+                    walk(ch)
+                    parts.append("\t")
+                elif ch.name in _BLOCK_TAGS:
+                    parts.append("\n")
+                    if ch.name != "br":
+                        walk(ch)
+                    parts.append("\n")
+                else:
+                    walk(ch)
+
+    walk(node)
+    raw = "".join(parts)
+    # 每个文本节点内的空白压缩；制表保留用于表格列分隔
+    lines = []
+    for ln in raw.split("\n"):
+        ln = re.sub(r"[^\S\t]+", " ", ln).strip()
+        if ln:
+            lines.append(ln)
+    return "\n".join(lines)
 
 
 def _clean_text_lines(lines: list[str]) -> list[str]:
@@ -889,7 +937,7 @@ class Fetcher:
             node = self._heuristic_main_block(soup)
         if node is None:
             return Detail(publish_time=pub)
-        raw = node.get_text("\n")
+        raw = _text_from_node(node)
         if _is_footer_only(raw):
             return Detail(publish_time=pub)
         text = "\n".join(_clean_text_lines(raw.splitlines()))

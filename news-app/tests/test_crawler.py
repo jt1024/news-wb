@@ -17,6 +17,7 @@ from app.crawler.base import (
     _is_footer_only,
     _parse_date,
     _parse_date_from_url,
+    _text_from_node,
     _title_from_link,
     same_site,
 )
@@ -604,6 +605,46 @@ class GuangdongDistrictFetchTests(unittest.TestCase):
         out = Fetcher(self._source({}))._rewrite_content_dir(
             "https://www.example.gov.cn/ywdt/content/post_1.html", "", "https://www.example.gov.cn")
         self.assertIsNone(out)
+
+
+class TextFromNodeTests(unittest.TestCase):
+    """正文抽取：span 拆分的行内文字应拼接，块级/表格应分行。"""
+
+    def test_span_split_docnum_joined(self):
+        # 政务公文文号被拆成一堆 span（西城送达公告的真实结构）
+        html = (
+            '<div><p>标题</p>'
+            '<p><span>京</span><span>西</span><span>民</span><span>先公</span>'
+            '<span>告﹝</span><span>2026</span><span>﹞</span><span>50</span><span>号</span></p>'
+            '<p>根据日常管理检查发现线索，依法立案调查。</p></div>'
+        )
+        node = BeautifulSoup(html, "lxml").div
+        out = _text_from_node(node)
+        self.assertIn("京西民先公告﹝2026﹞50号", out)
+        lines = [x for x in out.split("\n") if x.strip()]
+        self.assertNotIn("京", lines)  # 不应有单字独立成行
+
+    def test_normal_paragraphs_keep_lines(self):
+        html = "<div><p>第一段正文内容。</p><p>第二段正文内容。</p></div>"
+        node = BeautifulSoup(html, "lxml").div
+        lines = [x for x in _text_from_node(node).split("\n") if x.strip()]
+        self.assertEqual(lines, ["第一段正文内容。", "第二段正文内容。"])
+
+    def test_table_rows_preserved(self):
+        # 表格名单必须逐行保留，不能被合并成一段
+        html = "<table><tr><td>张三</td><td>甲</td></tr><tr><td>李四</td><td>乙</td></tr></table>"
+        node = BeautifulSoup(html, "lxml").table
+        out = _text_from_node(node)
+        self.assertIn("张三", out)
+        self.assertIn("李四", out)
+        self.assertGreaterEqual(len([x for x in out.split("\n") if x.strip()]), 2)
+
+    def test_nested_span_in_paragraph_not_broken(self):
+        # 数字被 span 包裹不应单独断行（"月" "日" 单字行问题）
+        html = '<div><p>11月<span>1</span>日，大会召开，<span>2026</span>年目标明确。</p></div>'
+        node = BeautifulSoup(html, "lxml").div
+        out = _text_from_node(node)
+        self.assertIn("11月1日，大会召开，2026年目标明确。", out)
 
 
 if __name__ == "__main__":
